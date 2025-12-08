@@ -1,5 +1,5 @@
 // ============================================
-// app/(auth)/register/page.tsx
+// app/auth/register/page.tsx
 // ============================================
 'use client';
 
@@ -8,8 +8,11 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { User, Mail, Lock, Phone, AlertCircle } from 'lucide-react';
 import api from '@/lib/api';
+import { useAuthContext } from '@/hooks/useAuth';
 
 export default function RegisterPage() {
+    const { register } = useAuthContext();
+
     const router = useRouter();
     const [formData, setFormData] = useState({
         name: '',
@@ -39,22 +42,17 @@ export default function RegisterPage() {
         setLoading(true);
 
         try {
-            const response = await api.post('/auth/register', {
+            await register({
                 name: formData.name,
                 email: formData.email,
                 phone: formData.phone,
                 password: formData.password,
                 userType: formData.userType,
             });
+            router.push('/');
 
-            // Store token
-            localStorage.setItem('token', response.data.data.token);
-            localStorage.setItem('user', JSON.stringify(response.data.data.user));
-
-            // Redirect to dashboard
-            router.push('/dashboard');
         } catch (err: any) {
-            setError(err.response?.data?.message || 'Registration failed');
+            setError(err.response?.data?.message || err.message || 'Registration failed');
         } finally {
             setLoading(false);
         }
@@ -182,7 +180,7 @@ export default function RegisterPage() {
                     {/* Footer */}
                     <p className="mt-6 text-center text-sm text-gray-600">
                         Already have an account?{' '}
-                        <Link href="/login" className="text-blue-600 hover:text-blue-700 font-semibold">
+                        <Link href="/auth/login" className="text-blue-600 hover:text-blue-700 font-semibold">
                             Sign in
                         </Link>
                     </p>

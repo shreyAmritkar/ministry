@@ -1,6 +1,6 @@
 // ============================================
 // services/officialService.js
-// Official Scorecard Business Logic
+// Official Scorecard Business Logic (MODIFIED FOR CITY-LEVEL)
 // ============================================
 const Report = require('../models/Report');
 const OfficialTenure = require('../models/OfficialTenure');
@@ -25,12 +25,27 @@ class OfficialService {
             throw new ApiError('User is not an official', 400);
         }
 
+        // Use the city from the User model for context
+        const officialCity = official.officialDetails?.city;
+
         // Get all tenures for this official
         const tenures = await OfficialTenure.find({
             official: officialId
         }).sort({ startDate: -1 });
 
         if (tenures.length === 0) {
+            // Check if city is known but no tenure exists
+            if (officialCity) {
+                return {
+                    official: { id: official._id, name: official.name, city: officialCity },
+                    currentTenure: null,
+                    tenureHistory: [],
+                    statistics: { totalReported: 0, solved: 0, efficiencyScore: 0, averageResolutionTime: '0 days' },
+                    categoryPerformance: [],
+                    performanceTrend: [],
+                    ratings: { efficiency: this.getEfficiencyRating(0), speed: this.getSpeedRating(999) }
+                };
+            }
             throw new ApiError('No tenure records found for this official', 404);
         }
 
@@ -82,7 +97,9 @@ class OfficialService {
             avgResolutionTime = Math.round(totalDays / resolvedReports.length);
         }
 
-        // Get category-wise breakdown
+        //
+
+        // Get category-wise breakdown (Retained, filtering by tenure IDs)
         const categoryBreakdown = await Report.aggregate([
             {
                 $match: {
@@ -121,7 +138,7 @@ class OfficialService {
         // Get current active tenure
         const currentTenure = tenures.find(t => t.isActive);
 
-        // Get performance trend (last 6 months)
+        // Get performance trend (last 6 months) (Retained, filtering by tenure IDs)
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
@@ -158,16 +175,17 @@ class OfficialService {
                 name: official.name,
                 email: official.email,
                 designation: official.officialDetails?.designation,
-                department: official.officialDetails?.department
+                department: official.officialDetails?.department,
+                city: officialCity // Include the city here
             },
             currentTenure: currentTenure ? {
-                ward: currentTenure.ward,
+                city: currentTenure.city, // CHANGED: 'ward' to 'city'
                 position: currentTenure.position,
                 startDate: currentTenure.startDate,
                 endDate: currentTenure.endDate
             } : null,
             tenureHistory: tenures.map(t => ({
-                ward: t.ward,
+                city: t.city, // CHANGED: 'ward' to 'city'
                 position: t.position,
                 startDate: t.startDate,
                 endDate: t.endDate,
@@ -192,7 +210,7 @@ class OfficialService {
     }
 
     /**
-     * Get efficiency rating based on percentage
+     * Get efficiency rating based on percentage (Retained)
      */
     getEfficiencyRating(score) {
         if (score >= 90) return { rating: 'Excellent', grade: 'A+' };
@@ -204,7 +222,7 @@ class OfficialService {
     }
 
     /**
-     * Get speed rating based on average resolution time
+     * Get speed rating based on average resolution time (Retained)
      */
     getSpeedRating(days) {
         if (days <= 3) return { rating: 'Excellent', grade: 'A+' };
@@ -216,28 +234,37 @@ class OfficialService {
     }
 
     /**
-     * Compare official performance with ward average
+     * Compare official performance with CITY average
+     * CHANGED: 'WardAverage' to 'CityAverage'
      */
-    async compareWithWardAverage(officialId) {
+    async compareWithCityAverage(officialId) {
         const scorecard = await this.getOfficialScorecard(officialId);
-        const ward = scorecard.currentTenure?.ward;
+        const city = scorecard.currentTenure?.city; // CHANGED: 'ward' to 'city'
 
-        if (!ward) {
+        if (!city) {
             return { ...scorecard, comparison: null };
         }
 
-        // Get all officials who served in this ward
-        const wardTenures = await OfficialTenure.find({
-            ward: ward,
-            _id: { $ne: scorecard.tenureHistory[0]._id }
+        // Get the official's current tenure ID(s) to exclude from the city average calculation
+        const excludedTenureIds = scorecard.tenureHistory.map(t => t._id);
+
+        // Get all other tenures in this city
+        const cityTenures = await OfficialTenure.find({
+            city: city, // CHANGED: Filter by 'city'
+            _id: { $nin: excludedTenureIds } // Exclude the current official's tenures
         });
 
-        const wardTenureIds = wardTenures.map(t => t._id);
+        const cityTenureIds = cityTenures.map(t => t._id);
 
-        const wardStats = await Report.aggregate([
+        // If no other tenures exist, cannot calculate average
+        if (cityTenureIds.length === 0) {
+            return { ...scorecard, comparison: { cityAverage: 0, difference: 0, performanceTier: 'N/A' } };
+        }
+
+        const cityStats = await Report.aggregate([
             {
                 $match: {
-                    official_tenure_id: { $in: wardTenureIds }
+                    official_tenure_id: { $in: cityTenureIds }
                 }
             },
             {
@@ -253,18 +280,27 @@ class OfficialService {
             }
         ]);
 
-        const wardAvgEfficiency = wardStats.length > 0
-            ? Math.round((wardStats[0].solved / wardStats[0].totalReported) * 100)
+        if (cityStats.length === 0 || cityStats[0].totalReported === 0) {
+            return { ...scorecard, comparison: { cityAverage: 0, difference: scorecard.statistics.efficiencyScore, performanceTier: 'No City Data' } };
+        }
+
+        const cityAvgEfficiency = cityStats.length > 0
+            ? Math.round((cityStats[0].solved / cityStats[0].totalReported) * 100)
             : 0;
+
+        // Calculate the difference against the City Average
+        const difference = scorecard.statistics.efficiencyScore - cityAvgEfficiency;
 
         return {
             ...scorecard,
             comparison: {
-                wardAverage: wardAvgEfficiency,
-                difference: scorecard.statistics.efficiencyScore - wardAvgEfficiency,
-                performanceTier: scorecard.statistics.efficiencyScore > wardAvgEfficiency
-                    ? 'Above Average'
-                    : 'Below Average'
+                cityAverage: cityAvgEfficiency,
+                difference: difference,
+                performanceTier: difference > 0
+                    ? 'Above City Average'
+                    : difference < 0
+                        ? 'Below City Average'
+                        : 'At City Average'
             }
         };
     }

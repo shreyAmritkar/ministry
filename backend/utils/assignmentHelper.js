@@ -1,91 +1,69 @@
 // ============================================
 // utils/assignmentHelper.js
-// Core Assignment Utility Functions
+// Core Assignment Utility Functions (MODIFIED FOR CITY-LEVEL)
 // ============================================
 const OfficialTenure = require('../models/OfficialTenure');
 const ApiError = require('./ApiError');
+const axios = require('axios');
+// NOTE: Ensure you have an environmental variable for the geocoding service key.
 
 /**
- * Reverse geocoding utility to get ward from coordinates
- * This can be integrated with external APIs or internal ward boundary data
+ * Reverse geocoding utility to get CITY and Pincode from coordinates
  */
-const getWardFromCoordinates = async (latitude, longitude) => {
+const getCityFromCoordinates = async (latitude, longitude) => {
+    // --- BEST PRACTICE: Use a dedicated, reliable Geocoding API ---
+    // For production, use a service like Nominatim/OpenStreetMap, Geoapify, or Mapbox.
+    const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse';
+
     try {
-        // METHOD 1: Using MongoDB Geospatial Query (if ward boundaries are stored)
-        const tenure = await OfficialTenure.findOne({
-            geoBoundaries: {
-                $geoIntersects: {
-                    $geometry: {
-                        type: 'Point',
-                        coordinates: [longitude, latitude]
-                    }
-                }
+        const response = await axios.get(NOMINATIM_URL, {
+            params: {
+                lat: latitude,
+                lon: longitude,
+                format: 'json',
+                addressdetails: 1,
+                // Add an appropriate user agent for non-Google/Mapbox services
+                'accept-language': 'en-US'
             },
-            isActive: true
+            // Set a user agent to comply with Nominatim's usage policy
+            headers: {
+                'User-Agent': 'CivicAccountabilityPlatform/1.0'
+            }
         });
 
-        if (tenure) {
-            return tenure.ward;
+        const address = response.data.address;
+
+        if (!address) {
+            throw new ApiError('Geocoding service returned no address data.', 404);
         }
 
-        // METHOD 2: External Geocoding API (Google Maps, Mapbox, etc.)
-        // Uncomment and configure as needed
-        /*
-        const axios = require('axios');
-        const response = await axios.get(
-          `https://maps.googleapis.com/maps/api/geocode/json`,
-          {
-            params: {
-              latlng: `${latitude},${longitude}`,
-              key: process.env.GOOGLE_MAPS_API_KEY
-            }
-          }
-        );
+        // Extract required components. Different services use different keys.
+        const city = address.city || address.town || address.village || address.municipality;
+        const pincode = address.postcode;
+        const state = address.state;
 
-        // Parse ward from address components
-        const addressComponents = response.data.results[0]?.address_components || [];
-        const wardComponent = addressComponents.find(
-          comp => comp.types.includes('sublocality_level_2') ||
-                  comp.types.includes('administrative_area_level_4')
-        );
-
-        return wardComponent?.long_name;
-        */
-
-        // METHOD 3: Fallback - Use nearest ward based on distance
-        const nearestTenure = await OfficialTenure.aggregate([
-            {
-                $geoNear: {
-                    near: {
-                        type: 'Point',
-                        coordinates: [longitude, latitude]
-                    },
-                    distanceField: 'distance',
-                    spherical: true,
-                    maxDistance: 10000, // 10km radius
-                    query: { isActive: true }
-                }
-            },
-            { $limit: 1 }
-        ]);
-
-        if (nearestTenure.length > 0) {
-            return nearestTenure[0].ward;
+        if (!city) {
+            throw new ApiError('Geocoding service could not determine the City.', 404);
         }
 
-        throw new ApiError('Unable to determine ward from coordinates', 404);
+        return { city, pincode, state };
+
     } catch (error) {
-        console.error('Ward lookup error:', error);
-        throw new ApiError('Failed to determine ward from location', 500);
+        console.error('City lookup error:', error.message);
+        // Throw 500 only if the external API call failed (not for 404 data not found)
+        if (error.response && error.response.status >= 500) {
+            throw new ApiError('External Geocoding Service Failed', 503);
+        }
+        throw new ApiError('Failed to determine location details.', 500);
     }
 };
 
 /**
- * Main function to assign report to the correct official
+ * Main function to assign report to the correct city-level official
  * @param {Number} latitude - Report location latitude
  * @param {Number} longitude - Report location longitude
  * @param {Date} date - Report creation date
- * @returns {Object} { official_id, tenure_id, ward }
+ * @returns {Object} { official_id, tenure_id, city, basicAddress }
  */
 const assignReportToOfficial = async (latitude, longitude, date) => {
     try {
@@ -94,50 +72,41 @@ const assignReportToOfficial = async (latitude, longitude, date) => {
             throw new ApiError('Latitude and longitude are required', 400);
         }
 
-        if (latitude < -90 || latitude > 90) {
-            throw new ApiError('Invalid latitude value', 400);
-        }
-
-        if (longitude < -180 || longitude > 180) {
-            throw new ApiError('Invalid longitude value', 400);
+        // Basic boundary validation
+        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+            throw new ApiError('Invalid coordinate values', 400);
         }
 
         const reportDate = date ? new Date(date) : new Date();
 
-        // Step 2: Get ward from coordinates
-        const ward = await getWardFromCoordinates(latitude, longitude);
+        // Step 2: Get City from coordinates
+        const { city, pincode, state } = await getCityFromCoordinates(latitude, longitude);
 
-        if (!ward) {
-            console.warn(`No ward found for coordinates: ${latitude}, ${longitude}`);
+        if (!city) {
+            console.warn(`No city found for coordinates: ${latitude}, ${longitude}`);
             return {
                 official_id: null,
                 tenure_id: null,
-                ward: null,
-                message: 'No ward jurisdiction found for this location'
+                city: null,
+                message: 'No city jurisdiction found for this location'
             };
         }
 
-        console.log(`📍 Report location mapped to Ward: ${ward}`);
+        console.log(`📍 Report location mapped to City: ${city}`);
 
-        // Step 3: Find the official who was responsible at that specific time
-        const tenure = await OfficialTenure.findOne({
-            ward: ward,
-            startDate: { $lte: reportDate },
-            $or: [
-                { endDate: { $gte: reportDate } },
-                { endDate: null } // Still active tenure
-            ]
-        })
+        // Step 3: Find the official who was responsible for the city at that specific time
+        // NOTE: Uses the static method defined in the modified OfficialTenure schema.
+        const tenure = await OfficialTenure.findOfficialAtDate(city, reportDate)
             .populate('official', 'name email phone officialDetails')
             .lean();
 
         if (!tenure) {
-            console.warn(`No official found for Ward ${ward} at ${reportDate}`);
+            console.warn(`No city-level official found for ${city} at ${reportDate}`);
             return {
                 official_id: null,
                 tenure_id: null,
-                ward: ward,
-                message: `No official assigned to ${ward} during this period`
+                city: city,
+                message: `No city-level official assigned to ${city} during this period`
             };
         }
 
@@ -147,7 +116,8 @@ const assignReportToOfficial = async (latitude, longitude, date) => {
         return {
             official_id: tenure.official._id,
             tenure_id: tenure._id,
-            ward: tenure.ward,
+            city: tenure.city,
+            basicAddress: { pincode, state },
             officialDetails: {
                 name: tenure.official.name,
                 position: tenure.position,
@@ -171,10 +141,14 @@ const batchAssignReportsToOfficials = async (reports) => {
     const results = [];
 
     for (const report of reports) {
+        // Ensure coordinates are [longitude, latitude] for GeoJSON standard, but use Lat/Long for the function call
+        const latitude = report.location.coordinates[1];
+        const longitude = report.location.coordinates[0];
+
         try {
             const assignment = await assignReportToOfficial(
-                report.location.coordinates[1], // latitude
-                report.location.coordinates[0], // longitude
+                latitude,
+                longitude,
                 report.createdAt
             );
 
@@ -196,24 +170,21 @@ const batchAssignReportsToOfficials = async (reports) => {
 };
 
 /**
- * Check if an official is still responsible for a location
- * Useful for reassignment checks
+ * Check if an official is still responsible for a city
+ * Uses the tenure ID for lookup
  */
 const isOfficialStillResponsible = async (tenureId, currentDate = new Date()) => {
     const tenure = await OfficialTenure.findById(tenureId);
 
     if (!tenure) return false;
 
-    const isStillActive =
-        tenure.startDate <= currentDate &&
-        (!tenure.endDate || tenure.endDate >= currentDate);
-
-    return isStillActive;
+    // Use the virtual property defined in the schema for clean logic
+    return tenure.isCurrentlyActive;
 };
 
 module.exports = {
     assignReportToOfficial,
-    getWardFromCoordinates,
+    getCityFromCoordinates,
     batchAssignReportsToOfficials,
     isOfficialStillResponsible
 };

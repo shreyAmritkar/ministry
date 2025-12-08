@@ -1,3 +1,6 @@
+// ============================================
+// app/auth/login/page.tsx
+// ============================================
 'use client';
 
 import { useState } from 'react';
@@ -5,8 +8,11 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import api from '@/lib/api';
+import { useAuthContext } from '@/hooks/useAuth';
 
 export default function LoginPage() {
+    const { login } = useAuthContext();
+
     const router = useRouter();
     const [formData, setFormData] = useState({
         email: '',
@@ -21,16 +27,12 @@ export default function LoginPage() {
         setLoading(true);
 
         try {
-            const response = await api.post('/auth/login', formData);
-
-            // Store token
-            localStorage.setItem('token', response.data.data.token);
-            localStorage.setItem('user', JSON.stringify(response.data.data.user));
+            await login(formData.email, formData.password);
 
             // Redirect to dashboard
             router.push('/dashboard');
         } catch (err: any) {
-            setError(err.response?.data?.message || 'Login failed');
+            setError(err.response?.data?.message || err.message || 'Login failed');
         } finally {
             setLoading(false);
         }

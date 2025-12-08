@@ -54,22 +54,22 @@ const reportSchema = new mongoose.Schema({
         }
     },
 
-    // Human-readable address
+    // Human-readable address (MODIFIED FOR CITY-LEVEL)
     address: {
         street: String,
         area: String,
         ward: {
             type: String,
-            required: [true, 'Ward information is required']
+            // CHANGED: Ward is no longer required as jurisdiction is city-wide
         },
         city: {
             type: String,
-            required: true
+            required: [true, 'City information is required'] // City remains required
         },
         pincode: String
     },
 
-    // Media Handling
+    // Media Handling (Retained)
     mediaType: {
         type: String,
         enum: ['none', 'image', 'video'],
@@ -85,16 +85,13 @@ const reportSchema = new mongoose.Schema({
             message: 'Media URL is required when mediaType is specified'
         }
     },
-    // For images/short videos (Cloudinary)
     cloudinaryId: String,
-
-    // For long videos (GridFS)
     gridfsId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'fs.files' // GridFS file reference
+        ref: 'fs.files'
     },
 
-    // Status Management
+    // Status Management (Retained)
     status: {
         type: String,
         enum: ['Pending', 'Acknowledged', 'In_Progress', 'Reported', 'Solved', 'Rejected'],
@@ -107,7 +104,7 @@ const reportSchema = new mongoose.Schema({
         default: 'Medium'
     },
 
-    // User Relationships
+    // User Relationships (Retained)
     reportedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
@@ -118,14 +115,14 @@ const reportSchema = new mongoose.Schema({
         ref: 'User'
     },
 
-    // Official Tenure Link (Critical for accountability)
+    // Official Tenure Link (Retained)
     official_tenure_id: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'OfficialTenure',
         index: true
     },
 
-    // Timeline & Updates
+    // Timeline & Updates (Retained)
     statusHistory: [{
         status: {
             type: String,
@@ -142,7 +139,7 @@ const reportSchema = new mongoose.Schema({
         }
     }],
 
-    // Resolution Details
+    // Resolution Details (Retained)
     resolutionDetails: {
         description: String,
         resolvedBy: {
@@ -156,7 +153,7 @@ const reportSchema = new mongoose.Schema({
         }]
     },
 
-    // Engagement Metrics
+    // Engagement Metrics (Retained)
     upvotes: {
         type: Number,
         default: 0
@@ -170,7 +167,7 @@ const reportSchema = new mongoose.Schema({
         default: 0
     },
 
-    // Visibility
+    // Visibility (Retained)
     isPublic: {
         type: Boolean,
         default: true
@@ -185,18 +182,21 @@ const reportSchema = new mongoose.Schema({
     toObject: { virtuals: true }
 });
 
-// CRITICAL: Compound 2dsphere index for geospatial queries
+// ----------------------------------------------------------------
+// INDEXES (Updated for city-level performance)
+// ----------------------------------------------------------------
 reportSchema.index({ location: '2dsphere' });
-
-// Additional indexes for performance
 reportSchema.index({ status: 1, createdAt: -1 });
 reportSchema.index({ reportedBy: 1, createdAt: -1 });
 reportSchema.index({ assignedTo: 1, status: 1 });
-reportSchema.index({ 'address.ward': 1, status: 1 });
+reportSchema.index({ 'address.city': 1, status: 1 }); // CHANGED: Index on city, not ward
 reportSchema.index({ category: 1, status: 1 });
 reportSchema.index({ official_tenure_id: 1 });
 
-// Virtual for duration
+// ----------------------------------------------------------------
+// VIRTUALS & MIDDLEWARE (Retained)
+// ----------------------------------------------------------------
+
 reportSchema.virtual('durationDays').get(function() {
     if (this.status === 'Solved' && this.resolutionDetails?.resolvedAt) {
         const diff = this.resolutionDetails.resolvedAt - this.createdAt;
@@ -206,18 +206,21 @@ reportSchema.virtual('durationDays').get(function() {
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
 });
 
-// Pre-save middleware to add status history
-reportSchema.pre('save', function(next) {
+reportSchema.pre('save', async function() {
     if (this.isModified('status')) {
         this.statusHistory.push({
             status: this.status,
             timestamp: Date.now()
         });
     }
-    next();
 });
 
-// Static method for geospatial queries (find reports near a location)
+
+// ----------------------------------------------------------------
+// STATIC METHODS (Updated for city-level lookups)
+// ----------------------------------------------------------------
+
+// Static method for geospatial queries (Retained)
 reportSchema.statics.findNearby = function(longitude, latitude, maxDistance = 5000) {
     return this.find({
         location: {
@@ -232,14 +235,18 @@ reportSchema.statics.findNearby = function(longitude, latitude, maxDistance = 50
     });
 };
 
-// Static method for ward-based reports
-reportSchema.statics.findByWard = function(ward, status = null) {
-    const query = { 'address.ward': ward };
+// Static method for city-based reports
+reportSchema.statics.findByCity = function(city, status = null) {
+    const query = { 'address.city': city }; // CHANGED: Query uses 'address.city'
     if (status) query.status = status;
     return this.find(query).sort({ createdAt: -1 });
 };
 
-// Method to add upvote
+// ----------------------------------------------------------------
+// INSTANCE METHODS (Retained)
+// ----------------------------------------------------------------
+
+// Method to add upvote (Retained)
 reportSchema.methods.addUpvote = async function(userId) {
     if (!this.upvotedBy.includes(userId)) {
         this.upvotedBy.push(userId);
@@ -248,7 +255,7 @@ reportSchema.methods.addUpvote = async function(userId) {
     }
 };
 
-// Method to update status with history
+// Method to update status with history (Retained)
 reportSchema.methods.updateStatus = async function(newStatus, userId, comment) {
     this.status = newStatus;
     this.statusHistory.push({

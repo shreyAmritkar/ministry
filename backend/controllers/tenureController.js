@@ -15,11 +15,11 @@ const asyncHandler = require('../utils/asyncHandler');
  * @access  Public
  */
 exports.getAllTenures = asyncHandler(async (req, res) => {
-    const { ward, isActive, position, page = 1, limit = 20 } = req.query;
+    const { city, isActive, position, page = 1, limit = 20 } = req.query;
 
     const query = {};
 
-    if (ward) query.ward = ward;
+    if (city) query.city = city;
     if (isActive !== undefined) query.isActive = isActive === 'true';
     if (position) query.position = position;
 
@@ -71,17 +71,17 @@ exports.getTenureById = asyncHandler(async (req, res) => {
 });
 
 /**
- * @route   GET /api/v1/tenures/ward/:ward/current
- * @desc    Get current official for a specific ward
+ * @route   GET /api/v1/tenures/city/:city/current
+ * @desc    Get current official for a specific city
  * @access  Public
  */
-exports.getCurrentOfficialForWard = asyncHandler(async (req, res) => {
-    const { ward } = req.params;
+exports.getCurrentOfficialForCity = asyncHandler(async (req, res) => {
+    const { city } = req.params;
 
-    const tenure = await OfficialTenure.findCurrentOfficialForWard(ward);
+    const tenure = await OfficialTenure.findCurrentOfficialForcity(city);
 
     if (!tenure) {
-        throw new ApiError(`No active official found for ${ward}`, 404);
+        throw new ApiError(`No active official found for ${city}`, 404);
     }
 
     return ApiResponse.success(
@@ -92,21 +92,21 @@ exports.getCurrentOfficialForWard = asyncHandler(async (req, res) => {
 });
 
 /**
- * @route   GET /api/v1/tenures/ward/:ward/history
- * @desc    Get tenure history for a ward
+ * @route   GET /api/v1/tenures/city/:city/history
+ * @desc    Get tenure history for a city
  * @access  Public
  */
-exports.getWardTenureHistory = asyncHandler(async (req, res) => {
-    const { ward } = req.params;
+exports.getCityTenureHistory = asyncHandler(async (req, res) => {
+    const { city } = req.params;
 
-    const tenures = await OfficialTenure.find({ ward })
+    const tenures = await OfficialTenure.find({ city })
         .populate('official', 'name email officialDetails')
         .sort({ startDate: -1 });
 
     return ApiResponse.success(
         res,
         tenures,
-        'Ward tenure history retrieved successfully'
+        'city tenure history retrieved successfully'
     );
 });
 
@@ -136,25 +136,23 @@ exports.getOfficialTenures = asyncHandler(async (req, res) => {
 
 /**
  * @route   POST /api/v1/tenures
- * @desc    Create new tenure (assign official to ward)
+ * @desc    Create new tenure (assign official to city)
  * @access  Private/Admin
  */
 exports.createTenure = asyncHandler(async (req, res) => {
     const {
         official,
-        ward,
-        wardNumber,
+        city,
         zone,
         position,
         department,
         startDate,
         endDate,
-        contactInfo,
-        responsibilities
+
     } = req.body;
 
     // Validate required fields
-    if (!official || !ward || !wardNumber || !zone || !position || !department || !startDate) {
+    if (!official || !city || !position || !department || !startDate) {
         throw new ApiError('Please provide all required fields', 400);
     }
 
@@ -166,14 +164,14 @@ exports.createTenure = asyncHandler(async (req, res) => {
 
     // Check for overlapping tenures
     const overlapping = await tenureService.checkOverlappingTenures(
-        ward,
+        city,
         new Date(startDate),
         endDate ? new Date(endDate) : null
     );
 
     if (overlapping) {
         throw new ApiError(
-            'Another official is already assigned to this ward for the specified period',
+            'Another official is already assigned to this city for the specified period',
             400
         );
     }
@@ -181,15 +179,12 @@ exports.createTenure = asyncHandler(async (req, res) => {
     // Create tenure
     const tenure = await OfficialTenure.create({
         official,
-        ward,
-        wardNumber,
+        city,
         zone,
         position,
         department,
         startDate: new Date(startDate),
         endDate: endDate ? new Date(endDate) : null,
-        contactInfo,
-        responsibilities,
         appointedBy: req.user._id,
         isActive: true
     });
@@ -214,10 +209,10 @@ exports.updateTenure = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
-    // Don't allow changing official or ward through update
+    // Don't allow changing official or city through update
     delete updates.official;
-    delete updates.ward;
-    delete updates.wardNumber;
+    delete updates.city;
+
 
     const tenure = await OfficialTenure.findById(id);
 
@@ -338,12 +333,12 @@ exports.updateTenureMetrics = asyncHandler(async (req, res) => {
 });
 
 /**
- * @route   GET /api/v1/tenures/ward/:ward/at-date
- * @desc    Get official responsible for a ward at a specific date
+ * @route   GET /api/v1/tenures/city/:city/at-date
+ * @desc    Get official responsible for a city at a specific date
  * @access  Public
  */
 exports.getOfficialAtDate = asyncHandler(async (req, res) => {
-    const { ward } = req.params;
+    const { city } = req.params;
     const { date } = req.query;
 
     if (!date) {
@@ -351,13 +346,13 @@ exports.getOfficialAtDate = asyncHandler(async (req, res) => {
     }
 
     const tenure = await tenureService.getOfficialAtSpecificDate(
-        ward,
+        city,
         new Date(date)
     );
 
     if (!tenure) {
         throw new ApiError(
-            `No official was assigned to ${ward} on ${date}`,
+            `No official was assigned to ${city} on ${date}`,
             404
         );
     }

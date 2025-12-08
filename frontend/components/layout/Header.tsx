@@ -1,20 +1,32 @@
+// ============================================
+// components/layout/Header.tsx (UPDATED - Show User Info)
+// ============================================
 'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, User } from 'lucide-react';
+import { Menu, X, User, LogOut } from 'lucide-react';
 import { useState } from 'react';
+import { useAuthContext } from '@/hooks/useAuth';
 
 export default function Header() {
     const pathname = usePathname();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const { user, logout } = useAuthContext();
 
     const navLinks = [
         { href: '/', label: 'Home' },
         { href: '/reports', label: 'Reports' },
         { href: '/officials', label: 'Officials' },
-        { href: '/analytics', label: 'Analytics' },
     ];
+    console.log(user);
+    // Add conditional links based on user role
+    if (user) {
+        navLinks.push({ href: '/dashboard', label: 'Dashboard' });
+        if (user.role === 'admin') {
+            navLinks.push({ href: '/admin/officials', label: 'Admin' });
+        }
+    }
 
     return (
         <header className="bg-white shadow-sm sticky top-0 z-50">
@@ -47,18 +59,36 @@ export default function Header() {
 
                     {/* Auth Buttons */}
                     <div className="hidden md:flex items-center gap-3">
-                        <Link
-                            href="/login"
-                            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-                        >
-                            Login
-                        </Link>
-                        <Link
-                            href="/register"
-                            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
-                        >
-                            Sign Up
-                        </Link>
+                        {user ? (
+                            <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                    <p className="text-sm font-medium text-gray-900">{user.name}</p>
+                                    <p className="text-xs text-gray-500">{user.role}</p>
+                                </div>
+                                <button
+                                    onClick={logout}
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-2"
+                                >
+                                    <LogOut className="w-4 h-4" />
+                                    Logout
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <Link
+                                    href="/auth/login"
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+                                >
+                                    Login
+                                </Link>
+                                <Link
+                                    href="/auth/register"
+                                    className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
+                                >
+                                    Sign Up
+                                </Link>
+                            </>
+                        )}
                     </div>
 
                     {/* Mobile Menu Button */}
@@ -88,20 +118,36 @@ export default function Header() {
                                     {link.label}
                                 </Link>
                             ))}
-                            <div className="flex flex-col gap-2 mt-4">
-                                <Link
-                                    href="/login"
-                                    className="px-4 py-2 text-center border border-gray-300 rounded-lg"
-                                >
-                                    Login
-                                </Link>
-                                <Link
-                                    href="/register"
-                                    className="px-4 py-2 text-center bg-blue-600 text-white rounded-lg"
-                                >
-                                    Sign Up
-                                </Link>
-                            </div>
+                            {user ? (
+                                <div className="flex flex-col gap-2 mt-4 pt-4 border-t">
+                                    <p className="text-sm font-medium text-gray-900">{user.name}</p>
+                                    <p className="text-xs text-gray-500 mb-2">{user.role}</p>
+                                    <button
+                                        onClick={() => {
+                                            logout();
+                                            setMobileMenuOpen(false);
+                                        }}
+                                        className="px-4 py-2 text-center border border-gray-300 rounded-lg text-sm"
+                                    >
+                                        Logout
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-2 mt-4">
+                                    <Link
+                                        href="/auth/login"
+                                        className="px-4 py-2 text-center border border-gray-300 rounded-lg"
+                                    >
+                                        Login
+                                    </Link>
+                                    <Link
+                                        href="/auth/register"
+                                        className="px-4 py-2 text-center bg-blue-600 text-white rounded-lg"
+                                    >
+                                        Sign Up
+                                    </Link>
+                                </div>
+                            )}
                         </nav>
                     </div>
                 )}

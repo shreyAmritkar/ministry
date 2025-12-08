@@ -2,7 +2,7 @@
 // controllers/authController.js
 // Authentication Controller
 // ============================================
-const User = require('../models/User');
+
 const ApiResponse = require('../utils/ApiResponse');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -23,7 +23,14 @@ const generateToken = (id) => {
  * @access  Public
  */
 exports.register = asyncHandler(async (req, res) => {
-    const { name, email, phone, password, userType } = req.body;
+    const { name, email, phone, password, userType , startDate } = req.body;
+    if (startDate) {
+        const parsedDate = new Date(startDate);
+        // Check future date
+        if (parsedDate > new Date()) {
+            throw new ApiError("Start date cannot be in the future", 400);
+        }
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -37,7 +44,8 @@ exports.register = asyncHandler(async (req, res) => {
         email,
         phone,
         password,
-        userType: userType || 'citizen'
+        userType: userType || 'citizen',
+        startDate
     });
 
     // Generate token

@@ -1,6 +1,8 @@
 // models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+// NOTE: Ensure 'crypto' is imported or defined if you use createVerificationToken
+const crypto = require('crypto');
 
 const userSchema = new mongoose.Schema({
     // Basic Info
@@ -28,7 +30,7 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Password is required'],
         minlength: [8, 'Password must be at least 8 characters'],
-        select: false // Don't return password in queries by default
+        select: false
     },
 
     // User Type & Role
@@ -40,11 +42,12 @@ const userSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['admin', 'moderator', 'user', 'ward_officer', 'municipal_officer'],
-        default: 'user'
+        // Simplified roles to align with city-level hierarchy
+        enum: ['admin', 'moderator', 'citizen'],
+        default: 'citizen'
     },
 
-    // Citizen-specific fields
+    // Citizen-specific fields (Retained)
     address: {
         street: String,
         city: String,
@@ -52,20 +55,21 @@ const userSchema = new mongoose.Schema({
         pincode: String
     },
 
-    // Official-specific fields
+    // Official-specific fields (MODIFIED)
     officialDetails: {
+
         designation: {
             type: String,
-            enum: ['Ward Councilor', 'Municipal Commissioner', 'Deputy Commissioner', 'Engineer', 'Health Officer', 'Other']
+            enum: ['Mayor', 'Municipal Commissioner', 'Deputy Commissioner', 'Engineer', 'Health Officer', 'Other'] // Updated enum to be city-level
         },
         employeeId: String,
         department: {
             type: String,
-            enum: ['Administration', 'Engineering', 'Health', 'Sanitation', 'Water Supply', 'Roads', 'Other']
+            enum: ['Administration', 'Engineering', 'Health', 'Sanitation', 'Water Supply', 'Roads', 'Finance', 'Other'] // Added Finance
         }
     },
 
-    // Profile
+    // Profile, Security, Metadata (Retained)
     avatar: {
         url: String,
         cloudinaryId: String
@@ -74,10 +78,9 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+
     verificationToken: String,
     verificationTokenExpiry: Date,
-
-    // Security
     passwordResetToken: String,
     passwordResetExpiry: Date,
     lastLogin: Date,
@@ -85,8 +88,6 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
-
-    // Metadata
     reportsSubmitted: {
         type: Number,
         default: 0
@@ -101,26 +102,26 @@ const userSchema = new mongoose.Schema({
     toObject: { virtuals: true }
 });
 
-// Indexes
+// Indexes (MODIFIED)
 userSchema.index({ email: 1 });
 userSchema.index({ userType: 1, isActive: 1 });
 userSchema.index({ 'officialDetails.department': 1 });
+userSchema.index({ 'officialDetails.city': 1, userType: 1 }); // ADDED: New index for quick official lookup by city
 
-// Virtual for reports submitted by citizen
+// Virtuals (Retained)
 userSchema.virtual('reports', {
     ref: 'Report',
     localField: '_id',
     foreignField: 'reportedBy'
 });
 
-// Virtual for reports assigned to official
 userSchema.virtual('assignedReports', {
     ref: 'Report',
     localField: '_id',
     foreignField: 'assignedTo'
 });
 
-// Pre-save middleware to hash password
+// Pre-save middleware to hash password (Retained)
 userSchema.pre('save', async function () {
     if (!this.isModified('password')) return;
 
@@ -129,12 +130,11 @@ userSchema.pre('save', async function () {
 });
 
 
-// Method to compare passwords
+// Methods (Retained)
 userSchema.methods.comparePassword = async function(candidatePassword) {
     return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Method to generate verification token
 userSchema.methods.createVerificationToken = function() {
     const token = crypto.randomBytes(32).toString('hex');
     this.verificationToken = crypto.createHash('sha256').update(token).digest('hex');
@@ -142,9 +142,10 @@ userSchema.methods.createVerificationToken = function() {
     return token;
 };
 
-// Static method to find active officials
-userSchema.statics.findActiveOfficials = function(department) {
+// Static method to find active officials (UPDATED)
+userSchema.statics.findActiveOfficials = function(city, department) {
     const query = { userType: 'official', isActive: true };
+    if (city) query['officialDetails.city'] = city; // Filter by city
     if (department) query['officialDetails.department'] = department;
     return this.find(query);
 };

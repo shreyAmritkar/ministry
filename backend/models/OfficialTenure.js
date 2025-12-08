@@ -11,40 +11,32 @@ const officialTenureSchema = new mongoose.Schema({
             validator: async function(id) {
                 const User = mongoose.model('User');
                 const user = await User.findById(id);
+                // Ensures the referenced ID is a user with the 'official' role
                 return user && user.userType === 'official';
             },
             message: 'Referenced user must be an official'
         }
     },
 
-    // Jurisdiction Details
-    ward: {
+    // Jurisdiction Details (CITY LEVEL)
+    city: {
         type: String,
-        required: [true, 'Ward information is required'],
+        required: [true, 'City name is required'],
         trim: true
     },
-    wardNumber: {
-        type: Number,
-        required: true
-    },
-    zone: {
-        type: String,
-        enum: ['North', 'South', 'East', 'West', 'Central'],
-        required: true
-    },
+
 
     // Position Details
     position: {
         type: String,
         required: [true, 'Position is required'],
         enum: [
-            'Ward Councilor',
-            'Deputy Commissioner',
+            'Mayor',
             'Municipal Commissioner',
-            'Zone Officer',
-            'Ward Engineer',
-            'Health Officer',
-            'Sanitation Inspector',
+            'CEO - Municipal Corporation',
+            'Chairperson - Nagar Parishad',
+            'Deputy Mayor',
+            'Head of Public Works',
             'Other'
         ]
     },
@@ -56,8 +48,8 @@ const officialTenureSchema = new mongoose.Schema({
             'Engineering',
             'Health & Sanitation',
             'Water Supply',
-            'Roads & Infrastructure',
             'Public Works',
+            'Finance & Taxation',
             'Other'
         ]
     },
@@ -68,7 +60,7 @@ const officialTenureSchema = new mongoose.Schema({
         required: [true, 'Start date is required'],
         validate: {
             validator: function(v) {
-                return v <= new Date();
+                return v <= new Date(); // Start date cannot be in the future
             },
             message: 'Start date cannot be in the future'
         }
@@ -77,7 +69,7 @@ const officialTenureSchema = new mongoose.Schema({
         type: Date,
         validate: {
             validator: function(v) {
-                return !v || v > this.startDate;
+                return !v || v > this.startDate; // End date must be after start date
             },
             message: 'End date must be after start date'
         }
@@ -94,7 +86,7 @@ const officialTenureSchema = new mongoose.Schema({
         enum: ['Transfer', 'Resignation', 'Retirement', 'Completion', 'Termination', 'Other']
     },
 
-    // Contact & Responsibilities
+    // Contact & Responsibilities (Retained)
     contactInfo: {
         phone: {
             type: String,
@@ -108,7 +100,7 @@ const officialTenureSchema = new mongoose.Schema({
         trim: true
     }],
 
-    // Geographic Boundaries (Optional for advanced features)
+    // Geographic Boundaries (Now for the whole city/municipality)
     geoBoundaries: {
         type: {
             type: String,
@@ -119,7 +111,7 @@ const officialTenureSchema = new mongoose.Schema({
         }
     },
 
-    // Performance Metrics
+    // Performance Metrics (Retained)
     metrics: {
         totalReportsReceived: {
             type: Number,
@@ -141,7 +133,7 @@ const officialTenureSchema = new mongoose.Schema({
         }
     },
 
-    // Metadata
+    // Metadata (Retained)
     appointedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
@@ -153,27 +145,30 @@ const officialTenureSchema = new mongoose.Schema({
     toObject: { virtuals: true }
 });
 
-// Indexes for efficient queries
+// ------------------------------------------------------------------
+// INDEXES (Updated for city-level lookups)
+// ------------------------------------------------------------------
 officialTenureSchema.index({ official: 1, isActive: 1 });
-officialTenureSchema.index({ ward: 1, isActive: 1 });
-officialTenureSchema.index({ wardNumber: 1, zone: 1 });
+officialTenureSchema.index({ city: 1, isActive: 1 }); // Primary change: Index on city
 officialTenureSchema.index({ startDate: 1, endDate: 1 });
 officialTenureSchema.index({ position: 1, isActive: 1 });
 
-// Compound index for ward and date range queries
-officialTenureSchema.index({ ward: 1, startDate: 1, endDate: 1 });
+// Compound index for city and date range queries
+officialTenureSchema.index({ city: 1, startDate: 1, endDate: 1 });
 
-// 2dsphere index for geographic boundaries (if used)
+// 2dsphere index for geographic boundaries
 officialTenureSchema.index({ geoBoundaries: '2dsphere' });
 
-// Virtual for reports during this tenure
+// ------------------------------------------------------------------
+// VIRTUALS & MIDDLEWARE (Mostly Retained)
+// ------------------------------------------------------------------
+
 officialTenureSchema.virtual('reports', {
     ref: 'Report',
     localField: '_id',
     foreignField: 'official_tenure_id'
 });
 
-// Virtual to check if tenure is currently active based on dates
 officialTenureSchema.virtual('isCurrentlyActive').get(function() {
     const now = new Date();
     return this.isActive &&
@@ -181,28 +176,41 @@ officialTenureSchema.virtual('isCurrentlyActive').get(function() {
         (!this.endDate || this.endDate >= now);
 });
 
-// Pre-save middleware to auto-set isActive based on dates
-officialTenureSchema.pre('save', function(next) {
+officialTenureSchema.pre('save', async function () {
     const now = new Date();
 
-    // Auto-deactivate if end date has passed
     if (this.endDate && this.endDate < now) {
         this.isActive = false;
     }
 
-    // Auto-activate if start date is reached and no end date or end date is future
     if (this.startDate <= now && (!this.endDate || this.endDate >= now)) {
         this.isActive = true;
     }
-
-    next();
 });
+// do not write next like
+// officialTenureSchema.pre('save', function(next) {
+//     const now = new Date();
+//
+//     if (this.endDate && this.endDate < now) {
+//         this.isActive = false;
+//     }
+//
+//     if (this.startDate <= now && (!this.endDate || this.endDate >= now)) {
+//         this.isActive = true;
+//     }
+//
+//     next();
+// });
 
-// Static method to find current official for a ward
-officialTenureSchema.statics.findCurrentOfficialForWard = function(ward) {
+// ------------------------------------------------------------------
+// STATIC & INSTANCE METHODS (Updated for city-level lookups)
+// ------------------------------------------------------------------
+
+// Static method to find current official for a city
+officialTenureSchema.statics.findCurrentOfficialForCity = function(city) {
     const now = new Date();
     return this.findOne({
-        ward: ward,
+        city: city, // Changed from 'ward' to 'city'
         isActive: true,
         startDate: { $lte: now },
         $or: [
@@ -213,9 +221,9 @@ officialTenureSchema.statics.findCurrentOfficialForWard = function(ward) {
 };
 
 // Static method to find official at a specific date (for historical accountability)
-officialTenureSchema.statics.findOfficialAtDate = function(ward, date) {
+officialTenureSchema.statics.findOfficialAtDate = function(city, date) {
     return this.findOne({
-        ward: ward,
+        city: city, // Changed from 'ward' to 'city'
         startDate: { $lte: date },
         $or: [
             { endDate: { $gte: date } },
@@ -224,8 +232,9 @@ officialTenureSchema.statics.findOfficialAtDate = function(ward, date) {
     }).populate('official', 'name email phone officialDetails');
 };
 
-// Method to update metrics
+// Method to update metrics (Retained)
 officialTenureSchema.methods.updateMetrics = async function() {
+    // NOTE: This assumes the 'Report' model has a 'durationDays' virtual/property.
     const Report = mongoose.model('Report');
 
     const reports = await Report.find({ official_tenure_id: this._id });
@@ -244,7 +253,7 @@ officialTenureSchema.methods.updateMetrics = async function() {
     await this.save();
 };
 
-// Method to end tenure
+// Method to end tenure (Retained)
 officialTenureSchema.methods.endTenure = async function(reason, endDate = new Date()) {
     this.isActive = false;
     this.endDate = endDate;

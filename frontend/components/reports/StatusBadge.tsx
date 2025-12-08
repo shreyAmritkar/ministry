@@ -15,7 +15,7 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
     };
 
     return (
-        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusStyles[status]}`}>
+       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusStyles[status]}`}>
       {status.replace(/_/g, ' ')}
     </span>
     );

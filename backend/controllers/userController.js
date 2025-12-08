@@ -5,7 +5,7 @@
 const asyncHandler = require("../utils/asyncHandler");
 const {paginated, success} = require("../utils/ApiResponse");
 const ApiError = require("../utils/ApiError");
-const {findByIdAndUpdate, findByIdAndUpdate} = require("../models/User");
+const { findByIdAndUpdate} = require("../models/User");
 /**
  * @route   GET /api/v1/users
  * @desc    Get all users (Admin only)
