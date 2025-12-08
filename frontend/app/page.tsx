@@ -120,7 +120,7 @@ export default function LandingPage() {
                         Start making a difference in your community today
                     </p>
                     <Link
-                        href="/register"
+                        href="/auth/register"
                         className="px-8 py-4 bg-white text-blue-600 rounded-lg font-semibold hover:bg-gray-100 transition inline-block"
                     >
                         Get Started Free

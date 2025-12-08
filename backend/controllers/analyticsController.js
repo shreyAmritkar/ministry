@@ -9,7 +9,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const {success} = require("../utils/ApiResponse");
 const ApiResponse = require('../utils/ApiResponse');
 const ApiError = require('../utils/ApiError');
-const User = require('../models/User');
+
 
 /**
  * @route   GET /api/v1/analytics/dashboard

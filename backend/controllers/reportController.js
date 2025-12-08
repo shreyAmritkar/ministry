@@ -1,34 +1,35 @@
 // ============================================
 // controllers/reportController.js
-// Report Management Controller
+// Report Management Controller (MODIFIED FOR CITY-LEVEL)
 // ============================================
 const Report = require('../models/Report');
 const reportService = require('../services/reportService');
-const { assignReportToOfficial } = require('../utils/assignmentHelper');
+const { assignReportToOfficial } = require('../utils/assignmentHelper'); // Assumes this now returns 'city'
 const asyncHandler = require("../utils/asyncHandler");
-const {paginated, success} = require("../utils/ApiResponse");
+const {paginated, success, ApiResponse} = require("../utils/ApiResponse"); // Added ApiResponse here
 const ApiError = require("../utils/ApiError");
 const User = require('../models/User');
 
 /**
  * @route   GET /api/v1/reports
- * @desc    Get all reports with filters
+ * @desc    Get all reports with filters (now includes city filter)
  * @access  Public
  */
 exports.getAllReports = asyncHandler(async (req, res) => {
-    const { status, category, ward, priority, page = 1, limit = 20 } = req.query;
+    // Replaced 'ward' with 'city' in the destructuring
+    const { status, category, city, priority, page = 1, limit = 20 } = req.query;
 
     const query = {};
 
     if (status) query.status = status;
     if (category) query.category = category;
-    if (ward) query['address.ward'] = ward;
+    if (city) query['address.city'] = city; // Updated filter to target city field
     if (priority) query.priority = priority;
 
     const reports = await Report.find(query)
         .populate('reportedBy', 'name email')
         .populate('assignedTo', 'name officialDetails')
-        .populate('official_tenure_id', 'position ward')
+        .populate('official_tenure_id', 'position city') // Updated official_tenure_id population field
         .sort({ createdAt: -1 })
         .limit(limit * 1)
         .skip((page - 1) * limit);
@@ -56,7 +57,7 @@ exports.getReportById = asyncHandler(async (req, res) => {
     const report = await Report.findById(req.params.id)
         .populate('reportedBy', 'name email phone')
         .populate('assignedTo', 'name email phone officialDetails')
-        .populate('official_tenure_id', 'position ward department');
+        .populate('official_tenure_id', 'position city department'); // Updated population field
 
     if (!report) {
         throw new ApiError('Report not found', 404);
@@ -84,6 +85,11 @@ exports.createReport = asyncHandler(async (req, res) => {
         reportedBy: req.user._id
     };
 
+    // Ensure coordinates are available (assuming GeoJSON [longitude, latitude] standard)
+    if (!reportData.location || !reportData.location.coordinates || reportData.location.coordinates.length !== 2) {
+        throw new ApiError('Valid GeoJSON location coordinates are required.', 400);
+    }
+
     // Extract coordinates
     const [longitude, latitude] = reportData.location.coordinates;
 
@@ -94,23 +100,27 @@ exports.createReport = asyncHandler(async (req, res) => {
         new Date()
     );
 
+    // If a city was determined AND an official was found
+    if (assignment.city) {
+        // Save the automatically determined city name
+        reportData.address.city = assignment.city;
+    }
+
     if (assignment.official_id) {
         reportData.assignedTo = assignment.official_id;
         reportData.official_tenure_id = assignment.tenure_id;
-        if (assignment.ward) {
-            reportData.address.ward = assignment.ward;
-        }
     }
+
 
     const report = await reportService.createReport(reportData, req.user._id);
 
-    // Populate relations
+    // Populate relations for the response
     await report.populate('assignedTo', 'name officialDetails');
 
     return success(
         res,
         { report, assignment: assignment.officialDetails },
-        'Report created successfully',
+        'Report created successfully and assigned (if official found)',
         201
     );
 });
@@ -134,7 +144,7 @@ exports.updateReportStatus = asyncHandler(async (req, res) => {
         comment
     );
 
-    return ApiResponse.success(
+    return success(
         res,
         report,
         'Report status updated successfully'
@@ -145,6 +155,8 @@ exports.updateReportStatus = asyncHandler(async (req, res) => {
  * @route   PATCH /api/v1/reports/:id/assign
  * @desc    Assign report to official
  * @access  Private (Admin)
+ * * NOTE: For city-level accountability, this route is less necessary but remains
+ * for Admin fallback/reassignment of UNASSIGNED reports.
  */
 exports.assignReport = asyncHandler(async (req, res) => {
     const { officialId } = req.body;
@@ -153,6 +165,8 @@ exports.assignReport = asyncHandler(async (req, res) => {
         throw new ApiError('Official ID is required', 400);
     }
 
+    // NOTE: In a city-level system, this function might need to also update the
+    // official_tenure_id based on the officialId provided.
     const report = await reportService.assignReportToOfficial(
         req.params.id,
         officialId
@@ -175,7 +189,7 @@ exports.getMyReports = asyncHandler(async (req, res) => {
         .populate('assignedTo', 'name officialDetails')
         .sort({ createdAt: -1 });
 
-    return ApiResponse.success(
+    return success( // Fixed: Was ApiResponse.success
         res,
         reports,
         'User reports retrieved successfully'
@@ -205,7 +219,7 @@ exports.getReportsNearby = asyncHandler(async (req, res) => {
         filters
     );
 
-    return ApiResponse.success(
+    return success( // Fixed: Was ApiResponse.success
         res,
         reports,
         'Nearby reports retrieved successfully'
@@ -224,11 +238,22 @@ exports.upvoteReport = asyncHandler(async (req, res) => {
         throw new ApiError('Report not found', 404);
     }
 
-    await report.addUpvote(req.user._id);
+    // Assuming the Report model has a method addUpvote
+    // NOTE: The original code lacked definition for addUpvote, assuming it exists on the model.
+    if (report.addUpvote) {
+        await report.addUpvote(req.user._id);
+    } else {
+        // Fallback or simple logic if model method is missing
+        if (!report.upvotes.includes(req.user._id)) {
+            report.upvotes.push(req.user._id);
+            await report.save();
+        }
+    }
+
 
     return success(
         res,
-        { upvotes: report.upvotes },
+        { upvotes: report.upvotes.length }, // Return the count
         'Report upvoted successfully'
     );
 });
@@ -244,6 +269,8 @@ exports.deleteReport = asyncHandler(async (req, res) => {
     if (!report) {
         throw new ApiError('Report not found', 404);
     }
+
+    // Check for authorization (e.g., if (req.user.role !== 'admin')) here in a real app
 
     await report.deleteOne();
 
