@@ -17,10 +17,17 @@ router.use(protect);
 router.post('/', reportController.createReport);
 router.patch('/:id/upvote', reportController.upvoteReport);
 router.get('/user/my-reports', reportController.getMyReports);
+router.patch('/:id/verify-resolution', reportController.verifyResolution);// Reporter verifies resolution
+router.patch('/:id/mark-resolved',authorizeOfficialOrAdmin,reportController.markAsResolved);// Official marks as resolved
 
 // Official/Admin only routes
 router.patch('/:id/status', authorizeOfficialOrAdmin, reportController.updateReportStatus);
 router.patch('/:id/assign', authorize('admin'), reportController.assignReport);
 router.delete('/:id', authorize('admin'), reportController.deleteReport);
+
+
+
+
+
 
 module.exports = router;

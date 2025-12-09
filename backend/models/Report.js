@@ -150,8 +150,40 @@ const reportSchema = new mongoose.Schema({
         verificationMedia: [{
             url: String,
             cloudinaryId: String
-        }]
+        }],
+        verificationStatus: {
+            type: String,
+            enum: ['pending_verification', 'verified', 'rejected', 'auto_verified'],
+            default: 'pending_verification'
+        },
+        verificationDeadline: Date,
+        verifiedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        verifiedAt: Date,
+        verificationComment: String,
     },
+
+    // NEW: Notification tracking
+    notifications: [{
+        type: {
+            type: String,
+            enum: ['status_update', 'resolution_request', 'verification_reminder']
+        },
+        sentAt: Date,
+        sentTo: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        read: {
+            type: Boolean,
+            default: false
+        }
+    }],
+
+
+
 
     // Engagement Metrics (Retained)
     upvotes: {

@@ -6,9 +6,95 @@ const Report = require('../models/Report');
 const reportService = require('../services/reportService');
 const { assignReportToOfficial } = require('../utils/assignmentHelper'); // Assumes this now returns 'city'
 const asyncHandler = require("../utils/asyncHandler");
-const {paginated, success, ApiResponse} = require("../utils/ApiResponse"); // Added ApiResponse here
+const {paginated, success} = require("../utils/ApiResponse"); // Added ApiResponse here
 const ApiError = require("../utils/ApiError");
 const User = require('../models/User');
+const notificationService = require('../services/notificationService');
+
+/**
+ * @route   PATCH /api/v1/reports/:id/mark-resolved
+ * @desc    Official marks report as resolved (triggers verification)
+ * @access  Private (Official/Admin)
+ */
+exports.markAsResolved = asyncHandler(async (req, res) => {
+    const { resolutionDescription, verificationMedia } = req.body;
+
+    const report = await Report.findById(req.params.id);
+
+    if (!report) {
+        throw new ApiError('Report not found', 404);
+    }
+
+    // Update report
+    report.status = 'Reported'; // Temporary status until verified
+    report.resolutionDetails = {
+        description: resolutionDescription,
+        resolvedBy: req.user._id,
+        resolvedAt: new Date(),
+        verificationMedia: verificationMedia || [],
+        verificationStatus: 'pending_verification',
+    };
+
+    await report.save();
+
+    // Send notification to reporter
+    await notificationService.notifyResolutionClaimed(report._id);
+
+    return success(
+        res,
+        report,
+        'Resolution claimed. Verification email sent to reporter.'
+    );
+});
+
+/**
+ * @route   PATCH /api/v1/reports/:id/verify-resolution
+ * @desc    Reporter verifies or rejects resolution
+ * @access  Private (Reporter only)
+ */
+exports.verifyResolution = asyncHandler(async (req, res) => {
+    const { verified, comment } = req.body;
+
+    const report = await Report.findById(req.params.id);
+
+    if (!report) {
+        throw new ApiError('Report not found', 404);
+    }
+
+    // Check if user is the reporter
+    if (report.reportedBy.toString() !== req.user._id.toString()) {
+        throw new ApiError('Only the reporter can verify resolution', 403);
+    }
+
+    if (verified) {
+        // Reporter confirms resolution
+        report.status = 'Solved';
+        report.resolutionDetails.verificationStatus = 'verified';
+        report.resolutionDetails.verifiedBy = req.user._id;
+        report.resolutionDetails.verifiedAt = new Date();
+        report.resolutionDetails.verificationComment = comment || 'Verified by reporter';
+
+        // Update official metrics
+        if (report.official_tenure_id) {
+            const OfficialTenure = require('../models/OfficialTenure');
+            const tenure = await OfficialTenure.findById(report.official_tenure_id);
+            if (tenure) await tenure.updateMetrics();
+        }
+    } else {
+        // Reporter rejects resolution
+        report.status = 'In_Progress';
+        report.resolutionDetails.verificationStatus = 'rejected';
+        report.resolutionDetails.verificationComment = comment || 'Resolution rejected by reporter';
+    }
+
+    await report.save();
+
+    return success(
+        res,
+        report,
+        verified ? 'Resolution verified. Thank you!' : 'Resolution rejected. Official will be notified.'
+    );
+});
 
 /**
  * @route   GET /api/v1/reports
@@ -99,6 +185,8 @@ exports.createReport = asyncHandler(async (req, res) => {
         longitude,
         new Date()
     );
+    console.log(`💕💕🙂 ${assignment}`);
+
 
     // If a city was determined AND an official was found
     if (assignment.city) {
