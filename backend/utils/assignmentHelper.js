@@ -96,7 +96,7 @@ const assignReportToOfficial = async (latitude, longitude, date) => {
 
         // Step 3: Find the official who was responsible for the city at that specific time
         // NOTE: Uses the static method defined in the modified OfficialTenure schema.
-        const tenure = await OfficialTenure.findOfficialAtDate(city, reportDate)
+        const tenure = await OfficialTenure.findOfficialAtDate(city.toLowerCase(), reportDate)
             .populate('official', 'name email phone officialDetails')
             .lean();
 

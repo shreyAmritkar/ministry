@@ -22,7 +22,8 @@ const officialTenureSchema = new mongoose.Schema({
     city: {
         type: String,
         required: [true, 'City name is required'],
-        trim: true
+        trim: true,
+        set: v => v.toLowerCase()
     },
 
 

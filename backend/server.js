@@ -8,6 +8,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/database');
 const errorHandler = require('./middleware/errorHandler');
+const CronJobs = require('./utils/cronJobs');
 require('dotenv').config();
 
 const app = express();
@@ -31,7 +32,8 @@ app.use('/api/', limiter);
 // Body Parser Middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
+// Initialize cron jobs
+CronJobs.init();
 // Health Check
 app.get('/health', (req, res) => {
     res.status(200).json({

@@ -42,7 +42,7 @@ export default function OfficialScorecardPage() {
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
             </div>
         );
-    }
+    } ;
 
     if (!scorecard) {
         return (
@@ -147,6 +147,7 @@ function MetricCard({ icon, label, value, color }: any) {
         purple: 'bg-purple-100 text-purple-600',
         yellow: 'bg-yellow-100 text-yellow-600',
     };
+
 
     return (
         <div className="bg-white p-6 rounded-xl shadow-lg">
