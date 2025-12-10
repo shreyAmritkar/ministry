@@ -5,7 +5,7 @@ import {AuthProvider} from "@/hooks/useAuth";
 import "./globals.css";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-
+import { Toaster } from "react-hot-toast";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -35,6 +35,7 @@ export default function RootLayout({
       <AuthProvider>
           <Header />
           {children}
+          <Toaster position="top-right" />
           <Footer />
       </AuthProvider>
       </body>

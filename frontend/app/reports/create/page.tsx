@@ -9,6 +9,7 @@ import { Upload, AlertCircle, Loader } from 'lucide-react';
 import api from '@/lib/api';
 import LocationPicker from '@/components/map/LocationPicker';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import toast from "react-hot-toast";
 
 export default function CreateReportPage() {
     const router = useRouter();
@@ -152,6 +153,7 @@ export default function CreateReportPage() {
         // STEP 1: Validate form first (NO API calls yet!)
         if (!validateForm()) {
             setError('Please fix the errors above before submitting');
+            toast.error("Please fix the validation errors");
             return;
         }
 
@@ -183,9 +185,9 @@ export default function CreateReportPage() {
                     console.log('✅ Media uploaded successfully');
                 } catch (uploadError: any) {
                     console.error('❌ Media upload failed:', uploadError);
-                    throw new Error(
-                        uploadError.response?.data?.message || 'Failed to upload media. Please try again.'
-                    );
+                    const msg = uploadError.response?.data?.message || 'Failed to upload media. Please try again.';
+                    toast.error(msg);
+                    throw new Error(msg);
                 }
             }
 
@@ -219,10 +221,13 @@ export default function CreateReportPage() {
             console.log('✅ Report created successfully');
 
             // STEP 4: Navigate to success page
+            toast.success("Report created successfully");
             router.push(`/reports/${response.data.data.report._id}`);
         } catch (err: any) {
             console.error('Error:', err);
-            setError(err.message || err.response?.data?.message || 'Failed to create report');
+            const errorMsg = err.message || err.response?.data?.message || 'Failed to create report';
+            setError(errorMsg);
+            toast.error(errorMsg);
             setUploadProgress(0);
         } finally {
             setLoading(false);

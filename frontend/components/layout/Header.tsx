@@ -19,7 +19,7 @@ export default function Header() {
         { href: '/reports', label: 'Reports' },
         { href: '/officials', label: 'Officials' },
     ];
-    console.log(user);
+    // console.log(user);
     // Add conditional links based on user role
     if (user) {
         navLinks.push({ href: '/dashboard', label: 'Dashboard' });
