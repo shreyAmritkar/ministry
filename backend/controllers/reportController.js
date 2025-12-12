@@ -368,3 +368,37 @@ exports.deleteReport = asyncHandler(async (req, res) => {
         'Report deleted successfully'
     );
 });
+/**
+ * @route   GET /api/v1/reports/official/my-assigned-reports
+ * @desc    Get all reports assigned to the current official
+ * @access  Private (Official)
+ */
+exports.getOfficialAssignedReports = asyncHandler(async (req, res) => {
+    // 1. Get the authenticated official's ID from req.user
+    const officialId = req.user._id;
+
+    if (!officialId) {
+        throw new ApiError('Authentication error: Official ID not found.', 401);
+    }
+
+    // 2. Query the database for reports assigned to this official.
+    // We filter reports that have the official's ID in the nested assignedTo field.
+    const reports = await Report.find({
+        'assignedTo': officialId,
+    })
+        .populate('reportedBy', 'name email')
+        .populate('assignedTo', 'name officialDetails')
+        .sort({
+            // Prioritize reports that need action: Pending > Acknowledged > In_Progress
+            status: 1,
+            priority: -1, // High priority first
+            createdAt: -1
+        });
+
+    // 3. Respond with the list of reports
+    return success(
+        res,
+        reports,
+        'Assigned reports retrieved successfully for official dashboard'
+    );
+});

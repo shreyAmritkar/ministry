@@ -27,10 +27,23 @@ export default function LoginPage() {
         setLoading(true);
 
         try {
-            await login(formData.email, formData.password);
+            const user = await login(formData.email, formData.password);
+            let redirectPath = '/dashboard';
 
-            // Redirect to dashboard
-            router.push('/dashboard');
+            // 🎯 ROLE-BASED REDIRECTION LOGIC 🎯
+            if (user && user.role) {
+                if (user.role === 'official') {
+                    // Redirect officials to their specific dashboard
+                    redirectPath = '/dashboard/official';
+                } else if (user.role === 'admin') {
+                    // Example for an admin role
+                    redirectPath = '/admin/officials';
+                }
+                // Regular users (role 'user' or default) remain at '/dashboard'
+            }
+
+            // Redirect based on determined role
+            router.push(redirectPath);
         } catch (err: any) {
             setError(err.response?.data?.message || err.message || 'Login failed');
         } finally {

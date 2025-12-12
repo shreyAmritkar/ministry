@@ -7,11 +7,13 @@ import StatusBadge from './StatusBadge';
 
 interface ReportCardProps {
     report: Report;
+    basePath?: string;
 }
 
-export default function ReportCard({ report }: ReportCardProps) {
+export default function ReportCard({ report, basePath = '/reports' }: ReportCardProps) {
+    const reportLink = `${basePath}/${report._id}`;
     return (
-        <Link href={`/reports/${report._id}`}>
+        <Link href={reportLink}>
             <div className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow p-6 cursor-pointer">
                 {/* Header */}
                 <div className="flex justify-between items-start mb-4">

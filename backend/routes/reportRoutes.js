@@ -19,7 +19,7 @@ router.patch('/:id/upvote', reportController.upvoteReport);
 router.get('/user/my-reports', reportController.getMyReports);
 router.patch('/:id/verify-resolution', reportController.verifyResolution);// Reporter verifies resolution
 router.patch('/:id/mark-resolved',authorizeOfficialOrAdmin,reportController.markAsResolved);// Official marks as resolved
-
+router.get('/official/my-assigned-reports', reportController.getOfficialAssignedReports);
 // Official/Admin only routes
 router.patch('/:id/status', authorizeOfficialOrAdmin, reportController.updateReportStatus);
 router.patch('/:id/assign', authorize('admin'), reportController.assignReport);

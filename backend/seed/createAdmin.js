@@ -33,12 +33,13 @@ createAdmin();
 
 
 // db.users.updateOne(
-//     ...   { email: "admin@civictrack.com" },
-//     ...   {
-//         ...     $set: {
-// ...       role: "admin",
-// ...       isVerified: true,
-// ...       isActive: true
-// ...     }
-// ...   }
-// ... )
+//       { email: "shiv@gmail.com" },
+//        {
+//          $set: {
+//                 role: "official",
+//              userType: "official",
+//        isVerified: true,
+//       isActive: true
+//      }
+//   }
+//  )

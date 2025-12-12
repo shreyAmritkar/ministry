@@ -14,7 +14,7 @@ export default function Header() {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const { user, logout } = useAuthContext();
 
-    const navLinks = [
+    let navLinks = [
         { href: '/', label: 'Home' },
         { href: '/reports', label: 'Reports' },
         { href: '/officials', label: 'Officials' },
@@ -25,6 +25,11 @@ export default function Header() {
         navLinks.push({ href: '/dashboard', label: 'Dashboard' });
         if (user.role === 'admin') {
             navLinks.push({ href: '/admin/officials', label: 'Admin' });
+        }else if(user.role === 'official') {
+            navLinks = navLinks.filter(link => link.href !== '/dashboard' && link.href !== '/' &&link.href !== '/reports');
+            navLinks.push({ href: '/dashboard/official', label: 'MyDashboard' });
+
+
         }
     }
 
