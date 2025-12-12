@@ -38,13 +38,13 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['citizen', 'official'],
         required: true,
-        default: 'citizen'
+
     },
     role: {
         type: String,
         // Simplified roles to align with city-level hierarchy
-        enum: ['admin', 'moderator', 'citizen'],
-        default: 'citizen'
+        enum: ['admin', 'moderator', 'citizen','official'],
+
     },
 
     // Citizen-specific fields (Retained)
@@ -146,7 +146,9 @@ userSchema.methods.createVerificationToken = function() {
 userSchema.statics.findActiveOfficials = function(city, department) {
     const query = { userType: 'official', isActive: true };
     if (city) query['officialDetails.city'] = city; // Filter by city
-    if (department) query['officialDetails.department'] = department;
+    if (department) query
+
+        ['officialDetails.department'] = department;
     return this.find(query);
 };
 

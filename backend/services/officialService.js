@@ -16,7 +16,7 @@ class OfficialService {
     async getOfficialScorecard(officialId) {
         // Verify official exists
         const official = await User.findById(officialId);
-
+        // console.log("official :  ",official);
         if (!official) {
             throw new ApiError('Official not found', 404);
         }
@@ -174,9 +174,9 @@ class OfficialService {
                 id: official._id,
                 name: official.name,
                 email: official.email,
-                designation: official.officialDetails?.designation,
-                department: official.officialDetails?.department,
-                city: officialCity // Include the city here
+                city: currentTenure?.city || official.officialDetails?.city || null,
+                position: currentTenure?.position || null,
+                department: currentTenure?.department || null
             },
             currentTenure: currentTenure ? {
                 city: currentTenure.city, // CHANGED: 'ward' to 'city'
