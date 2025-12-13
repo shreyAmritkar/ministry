@@ -10,6 +10,7 @@ const {paginated, success} = require("../utils/ApiResponse"); // Added ApiRespon
 const ApiError = require("../utils/ApiError");
 const User = require('../models/User');
 const notificationService = require('../services/notificationService');
+const aiService = require('../services/aiService');
 
 /**
  * @route   PATCH /api/v1/reports/:id/mark-resolved
@@ -198,16 +199,39 @@ exports.createReport = asyncHandler(async (req, res) => {
         reportData.assignedTo = assignment.official_id;
         reportData.official_tenure_id = assignment.tenure_id;
     }
+    // -----------------------------------------------------------------
+    // NEW: AI Categorization and Priority Setting
+    // -----------------------------------------------------------------
+    let aiAnalysis = {};
+    try {
+        aiAnalysis = await aiService.analyzeReportText(
+            reportData.title,
+            reportData.description
+        );
 
+        // Override/Set category and priority with AI prediction
+        reportData.category = aiAnalysis.category;
+        reportData.priority = aiAnalysis.priority;
 
+        // Optional: Save the reasoning for officials to see later
+        reportData.aiReasoning = aiAnalysis.reasoning;
+
+    } catch (error) {
+        console.warn('AI categorization skipped/failed. Using user-provided/default values.');
+
+    }
+    reportData.title = aiAnalysis.title;
+    reportData.description = aiAnalysis.description;
+    reportData.priority = aiAnalysis.priority;
+    reportData.category = aiAnalysis.category;
     const report = await reportService.createReport(reportData, req.user._id);
 
     // Populate relations for the response
     await report.populate('assignedTo', 'name officialDetails');
-
+    console.log(aiAnalysis);
     return success(
         res,
-        { report, assignment: assignment.officialDetails },
+        { report, assignment: assignment.officialDetails,aiAnalysis },
         'Report created successfully and assigned (if official found)',
         201
     );
