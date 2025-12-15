@@ -10,7 +10,7 @@ const connectDB = require('./config/database');
 const errorHandler = require('./middleware/errorHandler');
 const CronJobs = require('./utils/cronJobs');
 require('dotenv').config();
-
+const healthRoutes = require('./routes/healthRoutes');
 const app = express();
 
 // Security Middleware
@@ -35,15 +35,16 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Initialize cron jobs
 CronJobs.init();
 // Health Check
-app.get('/health', (req, res) => {
-    res.status(200).json({
-        status: 'success',
-        message: 'CivicTrack API is running',
-        timestamp: new Date().toISOString()
-    });
-});
+// app.get('/health', (req, res) => {
+//     res.status(200).json({
+//         status: 'success',
+//         message: 'CivicTrack API is running',
+//         timestamp: new Date().toISOString()
+//     });
+// });
 
 // API Routes
+app.use('/api/health', healthRoutes);
 app.use('/api/v1/auth', require('./routes/authRoutes'));
 app.use('/api/v1/users', require('./routes/userRoutes'));
 app.use('/api/v1/reports', require('./routes/reportRoutes'));

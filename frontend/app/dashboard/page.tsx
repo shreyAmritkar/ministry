@@ -1,5 +1,5 @@
 // ============================================
-// app/dashboard/page.tsx - User Dashboard (NEW)
+// app/dashboard/page.tsx - User Dashboard
 // ============================================
 'use client';
 
@@ -10,10 +10,24 @@ import api from '@/lib/api';
 import { Report } from '@/types/report';
 import ReportCard from '@/components/reports/ReportCard';
 
+interface DashboardStats {
+    total: number;
+    pending: number;
+    solved: number;
+    inProgress: number;
+}
+
+interface StatCardProps {
+    icon: React.ReactNode;
+    label: string;
+    value: number;
+    color: 'blue' | 'yellow' | 'purple' | 'green';
+}
+
 export default function DashboardPage() {
     const [reports, setReports] = useState<Report[]>([]);
     const [loading, setLoading] = useState(true);
-    const [stats, setStats] = useState({
+    const [stats, setStats] = useState<DashboardStats>({
         total: 0,
         pending: 0,
         solved: 0,
@@ -28,16 +42,15 @@ export default function DashboardPage() {
         try {
             setLoading(true);
             const response = await api.get('/reports/user/my-reports');
-            const myReports = response.data.data;
+            const myReports: Report[] = response.data.data;
             setReports(myReports);
 
             // Calculate stats
             setStats({
                 total: myReports.length,
-                pending: myReports.filter((r: Report) => r.status === 'Pending').length,
-                solved: myReports.filter((r: Report) => r.status === 'Solved').length,
-                inProgress: myReports.filter((r: Report) => r.status === 'In_Progress')
-                    .length,
+                pending: myReports.filter((r) => r.status === 'Pending').length,
+                solved: myReports.filter((r) => r.status === 'Solved').length,
+                inProgress: myReports.filter((r) => r.status === 'In_Progress').length,
             });
         } catch (error) {
             console.error('Failed to fetch reports:', error);
@@ -112,7 +125,7 @@ export default function DashboardPage() {
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {reports.map((report) => (
-                                <ReportCard key={report._id} report={report} />
+                                <ReportCard key={report._id} report={report} basePath="/reports" />
                             ))}
                         </div>
                     )}
@@ -122,8 +135,8 @@ export default function DashboardPage() {
     );
 }
 
-function StatCard({ icon, label, value, color }: any) {
-    const colorClasses = {
+function StatCard({ icon, label, value, color }: StatCardProps) {
+    const colorClasses: Record<StatCardProps['color'], string> = {
         blue: 'bg-blue-100 text-blue-600',
         yellow: 'bg-yellow-100 text-yellow-600',
         purple: 'bg-purple-100 text-purple-600',
