@@ -13,6 +13,13 @@ import EfficiencyGauge from '@/components/officials/EfficiencyGauge';
 import PerformanceChart from '@/components/officials/PerformanceChart';
 import CategoryBreakdown from '@/components/officials/CategoryBreakdown';
 
+interface MetricCardProps {
+    icon: React.ReactNode;
+    label: string;
+    value: string | number;
+    color: 'blue' | 'green' | 'purple' | 'yellow';
+}
+
 export default function OfficialScorecardPage() {
     const params = useParams();
     const [scorecard, setScorecard] = useState<OfficialScorecard | null>(null);
@@ -42,7 +49,7 @@ export default function OfficialScorecardPage() {
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
             </div>
         );
-    } ;
+    }
 
     if (!scorecard) {
         return (
@@ -63,21 +70,21 @@ export default function OfficialScorecardPage() {
                         <div>
                             <h1 className="text-4xl font-bold mb-2">{official.name}</h1>
                             <p className="text-xl opacity-90 mb-4">
-                                {official.designation} • {official.department}
+                                {official.position} • {official.department}
                             </p>
                             {currentTenure && (
                                 <div className="flex items-center gap-4 text-sm opacity-80">
                                     <span>📍 {currentTenure.ward}</span>
                                     <span>•</span>
                                     <span>
-                    Since {new Date(currentTenure.startDate).toLocaleDateString()}
-                  </span>
+                                        Since {new Date(currentTenure.startDate).toLocaleDateString()}
+                                    </span>
                                 </div>
                             )}
                         </div>
                         <div className="text-right">
                             <div className="text-6xl font-bold mb-2">
-                                {statistics.efficiencyScore}%
+                                {statistics.efficiencyScore.toFixed(1)}%
                             </div>
                             <div className="text-xl opacity-90">Efficiency Score</div>
                             <div className={`inline-block px-4 py-1 rounded-full mt-2 ${getGradeColor(ratings.efficiency.grade)}`}>
@@ -140,14 +147,13 @@ export default function OfficialScorecardPage() {
     );
 }
 
-function MetricCard({ icon, label, value, color }: any) {
-    const colorClasses = {
+function MetricCard({ icon, label, value, color }: MetricCardProps) {
+    const colorClasses: Record<MetricCardProps['color'], string> = {
         blue: 'bg-blue-100 text-blue-600',
         green: 'bg-green-100 text-green-600',
         purple: 'bg-purple-100 text-purple-600',
         yellow: 'bg-yellow-100 text-yellow-600',
     };
-
 
     return (
         <div className="bg-white p-6 rounded-xl shadow-lg">
@@ -160,7 +166,7 @@ function MetricCard({ icon, label, value, color }: any) {
     );
 }
 
-function getGradeColor(grade: string) {
+function getGradeColor(grade: string): string {
     if (grade.startsWith('A')) return 'bg-green-500 text-white';
     if (grade.startsWith('B')) return 'bg-blue-500 text-white';
     if (grade.startsWith('C')) return 'bg-yellow-500 text-white';

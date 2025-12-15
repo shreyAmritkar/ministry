@@ -39,6 +39,7 @@ export interface Report {
     official_tenure_id?: string;
     upvotes: number;
     views: number;
+    resolutionDetails?: ResolutionDetails;
     createdAt: string;
     updatedAt: string;
 }
@@ -68,6 +69,7 @@ export interface OfficialScorecard {
         email: string;
         designation: string;
         department: string;
+        position: string;
     };
     currentTenure: {
         ward: string;
@@ -103,4 +105,11 @@ interface PerformanceTrend {
     _id: { year: number; month: number };
     reported: number;
     solved: number;
+}
+export interface ResolutionDetails {
+    description: string;
+    verificationStatus: 'pending_verification'| 'verified'| 'rejected'| 'auto_verified';
+    claimedAt?: string;
+    verifiedAt?: string;
+    verifiedBy?: string;
 }

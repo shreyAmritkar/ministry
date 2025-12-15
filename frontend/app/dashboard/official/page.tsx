@@ -15,16 +15,15 @@ import {
     Users,
 } from 'lucide-react';
 import api from '@/lib/api';
-import { Report, OfficialScorecard, ReportStatus } from '@/types/report';
+import { Report, OfficialScorecard } from '@/types/report';
 import ReportCard from '@/components/reports/ReportCard';
-
-// Define the specific stats needed for the Official Dashboard
-interface DashboardStats {
-    totalAssigned: number;
-    pendingAction: number;
-    inProgress: number;
-    solved: number;
-}
+import {
+    DashboardStats,
+    StatCardProps,
+    ScoreCardSectionProps,
+    ScoreIndicatorProps,
+    RatingDisplayProps,
+} from '@/types/dashboard';
 
 export default function OfficialDashboardPage() {
     const [reports, setReports] = useState<Report[]>([]);
@@ -91,7 +90,6 @@ export default function OfficialDashboardPage() {
     const designation = scorecard?.official.position || 'N/A';
     const department = scorecard?.official.department || 'N/A';
 
-
     return (
         <div className="min-h-screen bg-gray-50 py-8">
             <div className="container mx-auto px-4">
@@ -99,7 +97,8 @@ export default function OfficialDashboardPage() {
                     Official Dashboard
                 </h1>
                 <p className="text-lg text-gray-600 mb-8">
-                    Welcome back, {officialName}! <br/>({designation} , {department})
+                    Welcome back, {officialName}! <br />
+                    ({designation}, {department})
                 </p>
 
                 {/* Main Stats Grid */}
@@ -182,7 +181,7 @@ export default function OfficialDashboardPage() {
                             Reports Assigned to Me ({reports.length})
                         </h2>
                         <Link
-                            href="/official/reports"
+                            href="/reports/"
                             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm"
                         >
                             View All Reports →
@@ -203,7 +202,7 @@ export default function OfficialDashboardPage() {
                                 <ReportCard
                                     key={report._id}
                                     report={report}
-                                    basePath="/officials/reports" // <-- Set the official path here
+                                    basePath="/officials/reports"
                                 />
                             ))}
                         </div>
@@ -211,7 +210,7 @@ export default function OfficialDashboardPage() {
                     {reports.length > 6 && (
                         <div className="text-center mt-6">
                             <Link
-                                href="/official/reports"
+                                href="/reports"
                                 className="text-green-600 hover:underline"
                             >
                                 Show more reports ({reports.length - 6} hidden) →
@@ -224,10 +223,10 @@ export default function OfficialDashboardPage() {
     );
 }
 
-// --- Helper Components (Reused/Adapted from User Dashboard) ---
+// --- Helper Components (Properly Typed) ---
 
-function StatCard({ icon, label, value, color, tooltip }: any) {
-    const colorClasses = {
+function StatCard({ icon, label, value, color, tooltip }: StatCardProps) {
+    const colorClasses: Record<StatCardProps['color'], string> = {
         indigo: 'bg-indigo-100 text-indigo-600',
         red: 'bg-red-100 text-red-600',
         yellow: 'bg-yellow-100 text-yellow-600',
@@ -255,7 +254,7 @@ function StatCard({ icon, label, value, color, tooltip }: any) {
     );
 }
 
-function ScoreCardSection({ title, children, className = '' }: any) {
+function ScoreCardSection({ title, children, className = '' }: ScoreCardSectionProps) {
     return (
         <div className={`bg-white p-6 rounded-xl shadow-md ${className}`}>
             <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b pb-2">
@@ -266,7 +265,7 @@ function ScoreCardSection({ title, children, className = '' }: any) {
     );
 }
 
-function ScoreIndicator({ icon, label, value, subLabel }: any) {
+function ScoreIndicator({ icon, label, value, subLabel }: ScoreIndicatorProps) {
     return (
         <div className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg">
             <div className="flex-shrink-0">{icon}</div>
@@ -279,8 +278,8 @@ function ScoreIndicator({ icon, label, value, subLabel }: any) {
     );
 }
 
-function RatingDisplay({ label, rating, grade, color }: any) {
-    const colorClasses = {
+function RatingDisplay({ label, rating, grade, color }: RatingDisplayProps) {
+    const colorClasses: Record<RatingDisplayProps['color'], string> = {
         blue: 'border-blue-500 text-blue-700 bg-blue-50',
         yellow: 'border-yellow-500 text-yellow-700 bg-yellow-50',
     };

@@ -8,14 +8,32 @@ import Link from 'next/link';
 import { MapPin, TrendingUp, Users, Shield } from 'lucide-react';
 import api from '@/lib/api';
 
+interface Stats {
+    totalReports: number;
+    solvedReports: number;
+    activeOfficials: number;
+}
+
+interface StatCardProps {
+    icon: React.ReactNode;
+    number: number;
+    label: string;
+    color: 'blue' | 'green' | 'purple';
+}
+
+interface FeatureCardProps {
+    step: string;
+    title: string;
+    description: string;
+    icon: string;
+}
+
 export default function LandingPage() {
-    const [stats, setStats] = useState({
+    const [stats, setStats] = useState<Stats>({
         totalReports: 0,
         solvedReports: 0,
         activeOfficials: 0,
     });
-
-
 
     const fetchStats = async () => {
         try {
@@ -25,6 +43,7 @@ export default function LandingPage() {
             console.error('Failed to fetch stats:', error);
         }
     };
+
     useEffect(() => {
         fetchStats();
     }, []);
@@ -131,8 +150,8 @@ export default function LandingPage() {
     );
 }
 
-function StatCard({ icon, number, label, color }: any) {
-    const colorClasses = {
+function StatCard({ icon, number, label, color }: StatCardProps) {
+    const colorClasses: Record<StatCardProps['color'], string> = {
         blue: 'bg-blue-100 text-blue-600',
         green: 'bg-green-100 text-green-600',
         purple: 'bg-purple-100 text-purple-600',
@@ -151,7 +170,7 @@ function StatCard({ icon, number, label, color }: any) {
     );
 }
 
-function FeatureCard({ step, title, description, icon }: any) {
+function FeatureCard({ step, title, description, icon }: FeatureCardProps) {
     return (
         <div className="bg-white p-8 rounded-xl shadow-lg hover:shadow-xl transition">
             <div className="text-5xl mb-4">{icon}</div>

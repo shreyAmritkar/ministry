@@ -1,5 +1,5 @@
 // ============================================
-// app/official/reports/[id]/page.tsx - Official Report Detail Page (NEW)
+// app/official/reports/[id]/page.tsx - Official Report Detail Page
 // ============================================
 'use client';
 
@@ -10,7 +10,14 @@ import { MapPin, Calendar, User, TrendingUp, ArrowLeft, Zap } from 'lucide-react
 import api from '@/lib/api';
 import { Report } from '@/types/report';
 import StatusBadge from '@/components/reports/StatusBadge';
-import OfficialReportActions from '@/components/reports/OfficialReportActions'; // <-- Official Action Component
+import OfficialReportActions from '@/components/reports/OfficialReportActions';
+
+interface DetailItemProps {
+    icon: React.ComponentType<{ className?: string }>;
+    label: string;
+    value: string | React.ReactNode;
+    subValue?: string;
+}
 
 export default function OfficialReportDetailPage() {
     const params = useParams();
@@ -54,7 +61,6 @@ export default function OfficialReportDetailPage() {
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
                     <p className="text-gray-600 mb-4">Report not found</p>
-                    {/* Link back to the official's report list */}
                     <Link href="/official/reports" className="text-blue-600 hover:underline">
                         ← Back to Assigned Reports
                     </Link>
@@ -63,13 +69,6 @@ export default function OfficialReportDetailPage() {
         );
     }
 
-    // Check if the current user (official) is the one assigned to this report
-    // (A real application would check req.user._id against report.assignedTo._id in the API,
-    // but for the frontend display, we rely on the route protection).
-    const isAssignedToOfficial = report.assignedTo?._id === 'CURRENT_USER_ID';
-
-    // NOTE: For now, we assume if the official is routed here, they are authorized to see/act.
-
     const officialDetails = report.assignedTo?.officialDetails;
 
     return (
@@ -77,7 +76,7 @@ export default function OfficialReportDetailPage() {
             <div className="container mx-auto px-4 max-w-6xl">
                 {/* Back Button */}
                 <Link
-                    href="/official/dashboard"
+                    href="/dashboard/official"
                     className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-6"
                 >
                     <ArrowLeft className="w-4 h-4" />
@@ -87,7 +86,6 @@ export default function OfficialReportDetailPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Main Content Column */}
                     <div className="lg:col-span-2 bg-white rounded-xl shadow-lg p-8 order-2 lg:order-1">
-
                         {/* Header */}
                         <div className="flex justify-between items-start mb-6">
                             <div className="flex-1">
@@ -96,10 +94,10 @@ export default function OfficialReportDetailPage() {
                                 </h1>
                                 <div className="flex items-center gap-4 text-sm text-gray-600">
                                     <span className="inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">
-                                      {report.category.replace(/_/g, ' ')}
+                                        {report.category.replace(/_/g, ' ')}
                                     </span>
                                     <span className="font-medium text-gray-700">
-                                      Priority: {report.priority}
+                                        Priority: {report.priority}
                                     </span>
                                 </div>
                             </div>
@@ -129,11 +127,11 @@ export default function OfficialReportDetailPage() {
                             </p>
                         </div>
 
-                        {/* Resolution Details (if claimed) */}
+                        {/* Resolution Details (if claimed) - FIXED: lowercase 'r' */}
                         {report.resolutionDetails?.description && (
                             <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
                                 <h3 className="text-lg font-bold text-green-800 mb-2 flex items-center gap-2">
-                                    <Zap className="w-5 h-5"/> Official Resolution Claimed
+                                    <Zap className="w-5 h-5" /> Official Resolution Claimed
                                 </h3>
                                 <p className="text-green-700 whitespace-pre-wrap mb-3">
                                     {report.resolutionDetails.description}
@@ -143,13 +141,11 @@ export default function OfficialReportDetailPage() {
                                 </p>
                             </div>
                         )}
-
                     </div>
 
                     {/* Sidebar / Actions Column */}
                     <div className="lg:col-span-1 space-y-8 order-1 lg:order-2">
-
-                        {/* 🎯 Official Actions Block 🎯 */}
+                        {/* Official Actions Block */}
                         <div className="bg-white rounded-xl shadow-lg p-6">
                             <h2 className="text-xl font-bold text-gray-900 mb-4">Official Actions</h2>
                             <OfficialReportActions
@@ -160,10 +156,25 @@ export default function OfficialReportDetailPage() {
 
                         {/* Report Details */}
                         <div className="bg-white rounded-xl shadow-lg p-6">
-                            <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-2">Report Details</h2>
-                            <DetailItem icon={MapPin} label="Location" value={report.address.city} subValue={report.address.street || report.address.ward} />
-                            <DetailItem icon={Calendar} label="Reported On" value={new Date(report.createdAt).toLocaleDateString()} />
-                            <DetailItem icon={User} label="Reported By" value={report.reportedBy.name} />
+                            <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-2">
+                                Report Details
+                            </h2>
+                            <DetailItem
+                                icon={MapPin}
+                                label="Location"
+                                value={report.address.city}
+                                subValue={report.address.street || report.address.ward}
+                            />
+                            <DetailItem
+                                icon={Calendar}
+                                label="Reported On"
+                                value={new Date(report.createdAt).toLocaleDateString()}
+                            />
+                            <DetailItem
+                                icon={User}
+                                label="Reported By"
+                                value={report.reportedBy.name}
+                            />
 
                             {/* Assigned Official Details */}
                             {report.assignedTo && (
@@ -193,7 +204,6 @@ export default function OfficialReportDetailPage() {
                                 <p className="text-lg font-bold text-gray-900">{report.upvotes}</p>
                             </div>
                         </div>
-
                     </div>
                 </div>
             </div>
@@ -202,7 +212,7 @@ export default function OfficialReportDetailPage() {
 }
 
 // Helper Component for Details
-function DetailItem({ icon: Icon, label, value, subValue }: any) {
+function DetailItem({ icon: Icon, label, value, subValue }: DetailItemProps) {
     return (
         <div className="flex items-start gap-3 py-2">
             <Icon className="w-5 h-5 text-gray-400 mt-1 flex-shrink-0" />
