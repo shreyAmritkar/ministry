@@ -221,7 +221,7 @@ reportSchema.index({ location: '2dsphere' });
 reportSchema.index({ status: 1, createdAt: -1 });
 reportSchema.index({ reportedBy: 1, createdAt: -1 });
 reportSchema.index({ assignedTo: 1, status: 1 });
-reportSchema.index({ 'address.city': 1, status: 1 }); // CHANGED: Index on city, not ward
+reportSchema.index({ 'address.city': 1, status: 1 });
 reportSchema.index({ category: 1, status: 1 });
 reportSchema.index({ official_tenure_id: 1 });
 

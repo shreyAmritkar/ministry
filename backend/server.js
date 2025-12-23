@@ -1,7 +1,10 @@
 // ============================================
 // server.js (UPDATED - Fixed GridFS Init)
 // ============================================
+require('dotenv').config();
+
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const helmet = require('helmet');
 const mongoSanitize = require('express-mongo-sanitize');
@@ -9,16 +12,24 @@ const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/database');
 const errorHandler = require('./middleware/errorHandler');
 const CronJobs = require('./utils/cronJobs');
-require('dotenv').config();
 const healthRoutes = require('./routes/healthRoutes');
+const { initializeSocket } = require('./config/socket.config');
+const notificationService = require('./services/notificationService');
+const aiAnalysisWorker = require('./workers/report.worker');
+const mediaProcessingWorker = require('./workers/media.worker');
+const notificationWorker = require('./workers/notification.worker');
+
+// console.log('🚀 BullMQ workers initialized');
 const app = express();
 
 // Security Middleware
 app.use(helmet());
 app.use(cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
-    credentials: true
+    origin: process.env.CLIENT_URL || 'http://192.168.1.6:3000',
+    credentials: true,
 }));
+
+
 app.use(mongoSanitize());
 
 // Rate Limiting
@@ -32,6 +43,14 @@ app.use('/api/', limiter);
 // Body Parser Middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+const server = http.createServer(app);
+
+// Initialize Socket.IO
+const io = initializeSocket(server);
+
+// Attach Socket.IO to notification service
+notificationService.setSocketIO(io);
+
 // Initialize cron jobs
 CronJobs.init();
 // Health Check
@@ -52,6 +71,9 @@ app.use('/api/v1/tenures', require('./routes/tenureRoutes'));
 app.use('/api/v1/media', require('./routes/mediaRoutes'));
 app.use('/api/v1/analytics', require('./routes/analyticsRoutes'));
 app.use('/api/v1/officials', require('./routes/officialRoutes'));
+app.use('/api/v1/notifications', require('./routes/notificationRoutes'));
+
+
 
 // 404 Handler
 app.use('*', (req, res) => {
@@ -69,11 +91,37 @@ const PORT = process.env.PORT || 5000;
 // Connect to MongoDB first, then start server
 // GridFS will be initialized automatically in connectDB
 connectDB().then(() => {
-    app.listen(PORT, () => {
+    server.listen(PORT, '0.0.0.0', () => {
         console.log(`🚀 CivicTrack API running on port ${PORT}`);
         console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
 }).catch((error) => {
     console.error('Failed to start server:', error);
     process.exit(1);
+});
+
+// ============================================
+// Initialize BullMQ Workers
+// ============================================
+
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('SIGTERM received, closing workers...');
+    await Promise.all([
+        aiAnalysisWorker.close(),
+        mediaProcessingWorker.close(),
+        notificationWorker.close(),
+    ]);
+    process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    console.log('SIGINT received, closing workers...');
+    await Promise.all([
+        aiAnalysisWorker.close(),
+        mediaProcessingWorker.close(),
+        notificationWorker.close(),
+    ]);
+    process.exit(0);
 });

@@ -1,11 +1,14 @@
 // ============================================
-// services/notificationService.js (NEW)
-// Email & In-app Notification Service
+// services/notificationService.js (MERGED - Email + Socket.IO + In-App)
 // ============================================
 const nodemailer = require('nodemailer');
 const User = require('../models/User');
 const Report = require('../models/Report');
+const Notification = require('../models/Notification');
 require('dotenv').config();
+
+// Socket.IO will be initialized later
+let io = null;
 
 class NotificationService {
     constructor() {
@@ -13,6 +16,7 @@ class NotificationService {
         console.log('EMAIL_USERNAME:', process.env.EMAIL_USERNAME ? '✅ Set' : '❌ Missing');
         console.log('EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? '✅ Set' : '❌ Missing');
         console.log('EMAIL_SERVICE:', process.env.EMAIL_SERVICE || 'gmail (default)');
+
         // Configure email transporter
         this.transporter = nodemailer.createTransport({
             service: process.env.EMAIL_SERVICE || 'gmail',
@@ -22,6 +26,136 @@ class NotificationService {
             }
         });
     }
+
+    /**
+     * Set Socket.IO instance (called from server.js)
+     */
+    setSocketIO(socketIO) {
+        io = socketIO;
+        console.log('✅ Socket.IO attached to NotificationService');
+    }
+
+    /**
+     * Get Socket.IO instance
+     */
+    getIO() {
+        if (!io) {
+            console.warn('⚠️ Socket.IO not initialized yet');
+        }
+        return io;
+    }
+
+    // ============================================
+    // CORE NOTIFICATION METHODS (NEW)
+    // ============================================
+
+    /**
+     * Create and emit notification (in-app + real-time)
+     */
+    async createNotification(data) {
+        try {
+            const notification = await Notification.create({
+                recipient: data.recipientId,
+                type: data.type,
+                title: data.title,
+                message: data.message,
+                data: data.data || {},
+                priority: data.priority || 'normal',
+            });
+
+            await notification.populate('recipient', 'name email');
+
+            // Emit via Socket.IO if available
+            this.emitToUser(data.recipientId, 'notification', notification);
+
+            return notification;
+        } catch (error) {
+            console.error('Error creating notification:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Send report created notification
+     */
+    async sendReportCreatedNotification(userId, reportData) {
+        return this.createNotification({
+            recipientId: userId,
+            type: 'report_created',
+            title: 'Report Created Successfully',
+            message: `Your report "${reportData.title}" has been submitted and is being processed.`,
+            data: {
+                reportId: reportData.reportId,
+                status: reportData.status,
+            },
+            priority: 'normal',
+        });
+    }
+
+    /**
+     * Send report assigned notification (to official)
+     */
+    async sendAssignmentNotification(officialId, reportData) {
+        return this.createNotification({
+            recipientId: officialId,
+            type: 'report_assigned',
+            title: 'New Report Assigned',
+            message: `You have been assigned a ${reportData.priority} priority report: "${reportData.reportTitle}"`,
+            data: {
+                reportId: reportData.reportId,
+                priority: reportData.priority,
+                category: reportData.category,
+            },
+            priority: reportData.priority === 'urgent' ? 'high' : 'normal',
+        });
+    }
+
+    /**
+     * Send status update notification (to reporter)
+     */
+    async sendStatusUpdateNotification(userId, reportData) {
+        const statusMessages = {
+            pending: 'Your report is pending review',
+            in_progress: 'Work has started on your report',
+            resolved: 'Your report has been resolved',
+            rejected: 'Your report has been reviewed',
+        };
+
+        return this.createNotification({
+            recipientId: userId,
+            type: 'status_updated',
+            title: 'Report Status Updated',
+            message: `"${reportData.reportTitle}": ${statusMessages[reportData.newStatus]}`,
+            data: {
+                reportId: reportData.reportId,
+                oldStatus: reportData.oldStatus,
+                newStatus: reportData.newStatus,
+            },
+            priority: 'normal',
+        });
+    }
+
+    /**
+     * Send AI analysis completed notification
+     */
+    async sendAIAnalysisCompleted(userId, reportData) {
+        return this.createNotification({
+            recipientId: userId,
+            type: 'ai_analysis_completed',
+            title: 'AI Analysis Complete',
+            message: `AI analysis completed for "${reportData.reportTitle}". Category: ${reportData.category}, Priority: ${reportData.priority}`,
+            data: {
+                reportId: reportData.reportId,
+                category: reportData.category,
+                priority: reportData.priority,
+            },
+            priority: 'low',
+        });
+    }
+
+    // ============================================
+    // EXISTING EMAIL NOTIFICATION METHODS
+    // ============================================
 
     /**
      * Notify reporter that official claims issue is resolved
@@ -42,7 +176,7 @@ class NotificationService {
             report.resolutionDetails.verificationDeadline = verificationDeadline;
             report.resolutionDetails.verificationStatus = 'pending_verification';
 
-            // Add notification
+            // Add notification to report (legacy)
             report.notifications.push({
                 type: 'resolution_request',
                 sentAt: new Date(),
@@ -50,6 +184,20 @@ class NotificationService {
             });
 
             await report.save();
+
+            // Create in-app notification (NEW)
+            await this.createNotification({
+                recipientId: report.reportedBy._id,
+                type: 'status_updated',
+                title: '✅ Your Report Has Been Resolved',
+                message: `Please verify the resolution of "${report.title}" within 2 days.`,
+                data: {
+                    reportId: report._id,
+                    status: 'resolved',
+                    verificationDeadline: verificationDeadline,
+                },
+                priority: 'high',
+            });
 
             // Send email
             const emailSent = await this.sendEmail({
@@ -84,6 +232,19 @@ class NotificationService {
             );
 
             if (hoursLeft <= 24 && hoursLeft > 0) {
+                // Create in-app notification (NEW)
+                await this.createNotification({
+                    recipientId: report.reportedBy._id,
+                    type: 'status_updated',
+                    title: '⏰ Reminder: Verify Your Report',
+                    message: `You have ${hoursLeft} hours left to verify "${report.title}"`,
+                    data: {
+                        reportId: report._id,
+                        hoursLeft,
+                    },
+                    priority: 'normal',
+                });
+
                 // Send reminder email
                 await this.sendEmail({
                     to: report.reportedBy.email,
@@ -91,7 +252,7 @@ class NotificationService {
                     html: this.getReminderEmailTemplate(report, hoursLeft)
                 });
 
-                // Add notification
+                // Add notification to report (legacy)
                 report.notifications.push({
                     type: 'verification_reminder',
                     sentAt: new Date(),
@@ -117,7 +278,7 @@ class NotificationService {
             const expiredReports = await Report.find({
                 'resolutionDetails.verificationStatus': 'pending_verification',
                 'resolutionDetails.verificationDeadline': { $lte: now }
-            });
+            }).populate('reportedBy', 'name email');
 
             console.log(`🤖 Auto-verifying ${expiredReports.length} expired reports...`);
 
@@ -128,6 +289,20 @@ class NotificationService {
                 report.resolutionDetails.verificationComment = 'Auto-verified: No response from reporter within 2 days';
 
                 await report.save();
+
+                // Send in-app notification (NEW)
+                await this.createNotification({
+                    recipientId: report.reportedBy._id,
+                    type: 'status_updated',
+                    title: 'Report Auto-Verified',
+                    message: `"${report.title}" has been automatically verified as resolved.`,
+                    data: {
+                        reportId: report._id,
+                        status: 'Solved',
+                        autoVerified: true,
+                    },
+                    priority: 'normal',
+                });
 
                 // Update official's metrics
                 if (report.official_tenure_id) {
@@ -147,6 +322,101 @@ class NotificationService {
             return 0;
         }
     }
+
+    // ============================================
+    // SOCKET.IO REAL-TIME METHODS
+    // ============================================
+
+    /**
+     * Emit notification to specific user
+     */
+    emitToUser(userId, event, data) {
+        try {
+            if (io) {
+                io.to(`user:${userId}`).emit(event, data);
+                console.log(`📤 Emitted ${event} to user:${userId}`);
+            }
+        } catch (error) {
+            console.error('Error emitting to user:', error);
+        }
+    }
+
+    /**
+     * Emit notification to specific role
+     */
+    emitToRole(role, event, data) {
+        try {
+            if (io) {
+                io.to(`role:${role}`).emit(event, data);
+                console.log(`📤 Emitted ${event} to role:${role}`);
+            }
+        } catch (error) {
+            console.error('Error emitting to role:', error);
+        }
+    }
+
+    /**
+     * Emit report update to all watching that report
+     */
+    emitReportUpdate(reportId, data) {
+        try {
+            if (io) {
+                io.to(`report:${reportId}`).emit('report-updated', data);
+                console.log(`📤 Emitted report-updated to report:${reportId}`);
+            }
+        } catch (error) {
+            console.error('Error emitting report update:', error);
+        }
+    }
+
+    // ============================================
+    // NOTIFICATION MANAGEMENT
+    // ============================================
+
+    /**
+     * Get user's unread notifications
+     */
+    async getUnreadNotifications(userId) {
+        return Notification.find({
+            recipient: userId,
+            read: false,
+        })
+            .sort({ createdAt: -1 })
+            .limit(20);
+    }
+
+    /**
+     * Mark notification as read
+     */
+    async markAsRead(notificationId, userId) {
+        const notification = await Notification.findOneAndUpdate(
+            { _id: notificationId, recipient: userId },
+            { read: true, readAt: new Date() },
+            { new: true }
+        );
+
+        if (notification) {
+            this.emitToUser(userId, 'notification-read', { notificationId });
+        }
+
+        return notification;
+    }
+
+    /**
+     * Mark all notifications as read
+     */
+    async markAllAsRead(userId) {
+        await Notification.updateMany(
+            { recipient: userId, read: false },
+            { read: true, readAt: new Date() }
+        );
+
+        this.emitToUser(userId, 'notifications-cleared', {});
+    }
+
+    // ============================================
+    // EMAIL METHODS
+    // ============================================
 
     /**
      * Send email helper

@@ -6,6 +6,9 @@ import "./globals.css";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import { Toaster } from "react-hot-toast";
+import NotificationProvider from '@/components/notifications/NotificationProvider';
+
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -33,10 +36,12 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
       <AuthProvider>
+          <NotificationProvider>
           <Header />
           {children}
           <Toaster position="top-right" />
           <Footer />
+          </NotificationProvider>
       </AuthProvider>
       </body>
     </html>

@@ -11,6 +11,7 @@ const ApiError = require("../utils/ApiError");
 const User = require('../models/User');
 const notificationService = require('../services/notificationService');
 const aiService = require('../services/aiService');
+const { queueAIAnalysis, queueNotification } = require('../queues/report.queue');
 
 /**
  * @route   PATCH /api/v1/reports/:id/mark-resolved
@@ -169,29 +170,20 @@ exports.getReportById = asyncHandler(async (req, res) => {
 exports.createReport = asyncHandler(async (req, res) => {
     const reportData = {
         ...req.body,
-        reportedBy: req.user._id
+        reportedBy: req.user._id,
     };
 
-    // Ensure coordinates are available (assuming GeoJSON [longitude, latitude] standard)
-    if (!reportData.location || !reportData.location.coordinates || reportData.location.coordinates.length !== 2) {
+    // Validate coordinates
+    if (!reportData.location?.coordinates || reportData.location.coordinates.length !== 2) {
         throw new ApiError('Valid GeoJSON location coordinates are required.', 400);
     }
 
-    // Extract coordinates
     const [longitude, latitude] = reportData.location.coordinates;
 
     // Auto-assign to official
-    const assignment = await assignReportToOfficial(
-        latitude,
-        longitude,
-        new Date()
-    );
-    console.log(`💕💕🙂 ${assignment}`);
+    const assignment = await assignReportToOfficial(latitude, longitude, new Date());
 
-
-    // If a city was determined AND an official was found
     if (assignment.city) {
-        // Save the automatically determined city name
         reportData.address.city = assignment.city;
     }
 
@@ -199,43 +191,156 @@ exports.createReport = asyncHandler(async (req, res) => {
         reportData.assignedTo = assignment.official_id;
         reportData.official_tenure_id = assignment.tenure_id;
     }
-    // -----------------------------------------------------------------
-    // NEW: AI Categorization and Priority Setting
-    // -----------------------------------------------------------------
-    let aiAnalysis = {};
+
+    // Create report FIRST (without AI data)
+    const report = await reportService.createReport(reportData, req.user._id);
+
+    // ============================================
+    // 🚀 QUEUE AI ANALYSIS IN BACKGROUND
+    // ============================================
     try {
-        aiAnalysis = await aiService.analyzeReportText(
+        await queueAIAnalysis(
+            report._id.toString(),
             reportData.title,
             reportData.description
         );
-
-        // Override/Set category and priority with AI prediction
-        reportData.category = aiAnalysis.category;
-        reportData.priority = aiAnalysis.priority;
-
-        // Optional: Save the reasoning for officials to see later
-        reportData.aiReasoning = aiAnalysis.reasoning;
-
-    } catch (error) {
-        console.warn('AI categorization skipped/failed. Using user-provided/default values.');
-
+        console.log(`🚀 AI analysis queued for report: ${report._id}`);
+    } catch (queueError) {
+        console.warn('Failed to queue AI analysis:', queueError);
     }
-    reportData.title = aiAnalysis.title;
-    reportData.description = aiAnalysis.description;
-    reportData.priority = aiAnalysis.priority;
-    reportData.category = aiAnalysis.category;
-    const report = await reportService.createReport(reportData, req.user._id);
 
-    // Populate relations for the response
+    // Queue notification to assigned official
+    if (assignment.official_id) {
+        try {
+            await queueNotification('report-assigned', assignment.official_id, {
+                reportId: report._id,
+                reportTitle: reportData.title,
+                priority: reportData.priority,
+            });
+        } catch (queueError) {
+            console.warn('Failed to queue notification:', queueError);
+        }
+    }
+
+    // Populate relations for response
     await report.populate('assignedTo', 'name officialDetails');
-    console.log(aiAnalysis);
+
     return success(
         res,
-        { report, assignment: assignment.officialDetails,aiAnalysis },
-        'Report created successfully and assigned (if official found)',
+        {
+            report,
+            assignment: assignment.officialDetails,
+            message: 'AI analysis is being processed in the background',
+        },
+        'Report created successfully',
         201
     );
 });
+/**
+ * @route   POST /api/v1/reports/bulk
+ * @desc    Create new reports
+ * @access  Private
+ */
+
+exports.createBulkReports = asyncHandler(async (req, res) => {
+    const { reports } = req.body;
+
+    // Validate input
+    if (!Array.isArray(reports) || reports.length === 0) {
+        throw new ApiError('Reports array is required and cannot be empty', 400);
+    }
+
+    if (reports.length > 100) {
+        throw new ApiError('Cannot create more than 100 reports at once', 400);
+    }
+
+    const results = {
+        successful: [],
+        failed: []
+    };
+
+    // Process each report
+    for (let i = 0; i < reports.length; i++) {
+        try {
+            const reportData = {
+                ...reports[i],
+                reportedBy: req.user._id
+            };
+
+            // Validate coordinates
+            if (!reportData.location || !reportData.location.coordinates || reportData.location.coordinates.length !== 2) {
+                results.failed.push({
+                    index: i,
+                    data: reports[i],
+                    error: 'Valid GeoJSON location coordinates are required'
+                });
+                continue;
+            }
+
+            const [longitude, latitude] = reportData.location.coordinates;
+
+            // Auto-assign to official
+            const assignment = await assignReportToOfficial(
+                latitude,
+                longitude,
+                new Date()
+            );
+
+            // Set city if determined
+            if (assignment.city) {
+                reportData.address = reportData.address || {};
+                reportData.address.city = assignment.city;
+            }
+
+            // Set assignment if official found
+            if (assignment.official_id) {
+                reportData.assignedTo = assignment.official_id;
+                reportData.official_tenure_id = assignment.tenure_id;
+            }
+
+            // AI Analysis (if you want to keep it)
+            // Uncomment if aiAnalysis is available
+            /*
+            reportData.title = aiAnalysis.title;
+            reportData.description = aiAnalysis.description;
+            reportData.priority = aiAnalysis.priority;
+            reportData.category = aiAnalysis.category;
+            */
+
+            // Create report
+            const report = await reportService.createReport(reportData, req.user._id);
+
+            // Populate relations
+            await report.populate('assignedTo', 'name officialDetails');
+
+            results.successful.push({
+                index: i,
+                reportId: report._id,
+                assignment: assignment.officialDetails || null
+            });
+
+        } catch (error) {
+            results.failed.push({
+                index: i,
+                data: reports[i],
+                error: error.message
+            });
+        }
+    }
+
+    return success(
+        res,
+        {
+            total: reports.length,
+            successful: results.successful.length,
+            failed: results.failed.length,
+            results
+        },
+        `Bulk creation completed: ${results.successful.length} succeeded, ${results.failed.length} failed`,
+        201
+    );
+});
+
 
 /**
  * @route   PATCH /api/v1/reports/:id/status
