@@ -8,6 +8,8 @@ import { usePathname } from 'next/navigation';
 import { Menu, X, User, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthContext } from '@/hooks/useAuth';
+import NotificationBell from '@/components/notifications/NotificationBell';
+
 
 export default function Header() {
     const pathname = usePathname();
@@ -61,6 +63,7 @@ export default function Header() {
                             </Link>
                         ))}
                     </nav>
+                    {user && <NotificationBell />}
 
                     {/* Auth Buttons */}
                     <div className="hidden md:flex items-center gap-3">

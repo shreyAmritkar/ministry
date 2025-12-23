@@ -18,7 +18,7 @@ class ReportService {
         // Use a transaction if required for atomicity, but for now, rely on standard save.
         const report = await Report.create(reportData);
 
-        // Update tenure metrics ONLY if an official was assigned successfully
+        // Update tenure metrics ONLY if an official was 📧 Sending report-assigned notification assigned successfully
         if (reportData.official_tenure_id) {
             const tenure = await OfficialTenure.findById(reportData.official_tenure_id);
             if (tenure) {

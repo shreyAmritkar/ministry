@@ -1,16 +1,39 @@
 version: '3.8'
 
 services:
+  # ============================================
+  # Redis Service (NEW - Required for BullMQ)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: civictrack-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Backend Service (UPDATED)
+  # ============================================
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile  # Use Dockerfile for now
+      dockerfile: Dockerfile
     container_name: civictrack-backend
     restart: unless-stopped
     ports:
       - "5000:5000"
     environment:
-      - NODE_ENV=development  # This will override the Dockerfile ENV
+      - NODE_ENV=${NODE_ENV}
       - PORT=${PORT}
       - CLIENT_URL=${CLIENT_URL}
       - MONGODB_URI=${MONGODB_URI}
@@ -34,17 +57,29 @@ services:
       - DEFAULT_SEARCH_RADIUS=${DEFAULT_SEARCH_RADIUS}
       - MAX_SEARCH_RADIUS=${MAX_SEARCH_RADIUS}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # ============================================
+      # NEW: Redis Configuration for BullMQ
+      # ============================================
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     networks:
       - app-network
     volumes:
       - backend_uploads:/app/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://192.168.1.6:5000/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
 
+  # ============================================
+  # Frontend Service (NO CHANGES NEEDED)
+  # ============================================
   frontend:
     build:
       context: ./frontend
@@ -71,3 +106,4 @@ networks:
 
 volumes:
   backend_uploads:
+  redis_data:  # NEW: Persistent storage for Redis
