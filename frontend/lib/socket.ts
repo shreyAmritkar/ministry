@@ -16,7 +16,7 @@ export const initializeSocket = (token: string): Socket => {
         socket.disconnect();
     }
 
-    const backendUrl =  process.env.BACKEND_SOCKET || 'http://192.168.1.6:5000';
+    const backendUrl =  process.env.BACKEND_SOCKET || 'http://localhost:5000';
     console.log('🔌 Initializing Socket.IO connection to:', backendUrl);
     console.log('🔑 Using token:', token ? `${token.substring(0, 20)}...` : 'NO TOKEN');
 
