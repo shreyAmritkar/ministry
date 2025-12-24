@@ -10,10 +10,12 @@ let redisConnection;
 
 try {
     // Redis connection configuration
-    redisConnection = new Redis(process.env.REDIS_URL, {
+    redisConnection = new Redis({
+        host: process.env.REDIS_HOST || 'localhost',
+        port: process.env.REDIS_PORT || 6379,
+        password: process.env.REDIS_PASSWORD,
         maxRetriesPerRequest: null,
         enableReadyCheck: false,
-        tls: process.env.NODE_ENV === 'production' ? {} : undefined,
         retryStrategy: (times) => {
             const delay = Math.min(times * 50, 2000);
             return delay;

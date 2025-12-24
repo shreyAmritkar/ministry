@@ -17,7 +17,6 @@ const initializeSocket = (server) => {
         // Increase timeouts for development
         pingTimeout: 60000,
         pingInterval: 25000,
-        maxHttpBufferSize: 1e6,
         // Allow upgrades
         allowUpgrades: true,
         // Cookie settings
