@@ -6,34 +6,56 @@ const Redis = require('ioredis');
 
 
 // Redis connection configuration
-let redisConnection;
+let redisConnection = null;
 
 try {
-    // Redis connection configuration
-    redisConnection = new Redis({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: process.env.REDIS_PORT || 6379,
-        password: process.env.REDIS_PASSWORD,
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false,
-        retryStrategy: (times) => {
-            const delay = Math.min(times * 50, 2000);
-            return delay;
-        },
-        reconnectOnError: (err) => {
-            console.error('Redis connection error:', err.message);
-            return true;
+    const redisUrl = process.env.REDIS_URL;
+
+    if (!redisUrl) {
+        console.warn('⚠️  REDIS_URL not set. Queue features will be disabled.');
+    } else {
+        // Parse Redis URL
+        const redisOptions = {
+            maxRetriesPerRequest: null,
+            enableReadyCheck: false,
+            retryStrategy: (times) => {
+                if (times > 10) {
+                    console.error('❌ Redis: Max retry attempts reached');
+                    return null;
+                }
+                return Math.min(times * 50, 2000);
+            },
+            reconnectOnError: (err) => {
+                console.error('Redis reconnection error:', err.message);
+                return true;
+            }
+        };
+
+        // Add TLS for production (Upstash requires TLS)
+        if (process.env.NODE_ENV === 'production') {
+            redisOptions.tls = {
+                rejectUnauthorized: false
+            };
         }
-    });
 
-    redisConnection.on('connect', () => {
-        console.log('✅ Redis connected successfully');
-    });
+        redisConnection = new Redis(redisUrl, redisOptions);
 
-    redisConnection.on('error', (err) => {
-        console.error('❌ Redis connection error:', err.message);
-        console.log('💡 Tip: Make sure Redis is running on', process.env.REDIS_HOST || 'localhost');
-    });
+        redisConnection.on('connect', () => {
+            console.log('✅ Redis connected successfully');
+        });
+
+        redisConnection.on('ready', () => {
+            console.log('✅ Redis ready to accept commands');
+        });
+
+        redisConnection.on('error', (err) => {
+            console.error('❌ Redis error:', err.message);
+        });
+
+        redisConnection.on('close', () => {
+            console.warn('⚠️  Redis connection closed');
+        });
+    }
 } catch (error) {
     console.error('❌ Failed to initialize Redis:', error.message);
     console.log('⚠️  Queue features will be disabled');
