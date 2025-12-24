@@ -18,7 +18,7 @@ const notificationService = require('./services/notificationService');
 const aiAnalysisWorker = require('./workers/report.worker');
 const mediaProcessingWorker = require('./workers/media.worker');
 const notificationWorker = require('./workers/notification.worker');
-
+// require('./utils/keepAlive');
 // console.log('🚀 BullMQ workers initialized');
 const app = express();
 
