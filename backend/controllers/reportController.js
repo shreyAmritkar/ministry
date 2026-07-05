@@ -10,7 +10,6 @@ const {paginated, success} = require("../utils/ApiResponse"); // Added ApiRespon
 const ApiError = require("../utils/ApiError");
 const User = require('../models/User');
 const notificationService = require('../services/notificationService');
-const aiService = require('../services/aiService');
 const { queueAIAnalysis, queueNotification } = require('../queues/report.queue');
 
 /**
@@ -419,7 +418,10 @@ exports.getMyReports = asyncHandler(async (req, res) => {
  * @access  Public
  */
 exports.getReportsNearby = asyncHandler(async (req, res) => {
-    const { latitude, longitude, maxDistance = 5000, status, category } = req.query;
+    const DEFAULT_SEARCH_RADIUS = parseInt(process.env.DEFAULT_SEARCH_RADIUS, 10) || 5000;
+    const MAX_SEARCH_RADIUS = parseInt(process.env.MAX_SEARCH_RADIUS, 10) || 50000;
+
+    const { latitude, longitude, maxDistance = DEFAULT_SEARCH_RADIUS, status, category } = req.query;
 
     if (!latitude || !longitude) {
         throw new ApiError('Latitude and longitude are required', 400);
@@ -429,10 +431,15 @@ exports.getReportsNearby = asyncHandler(async (req, res) => {
     if (status) filters.status = status;
     if (category) filters.category = category;
 
+    // Clamp requested radius to MAX_SEARCH_RADIUS to prevent expensive,
+    // unbounded $geoNear scans across the entire collection.
+    const requestedDistance = parseInt(maxDistance, 10) || DEFAULT_SEARCH_RADIUS;
+    const clampedDistance = Math.min(requestedDistance, MAX_SEARCH_RADIUS);
+
     const reports = await reportService.getReportsNearby(
         parseFloat(longitude),
         parseFloat(latitude),
-        parseInt(maxDistance),
+        clampedDistance,
         filters
     );
 

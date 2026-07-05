@@ -2,27 +2,7 @@ version: '3.8'
 
 services:
   # ============================================
-  # Redis Service (NEW - Required for BullMQ)
-  # ============================================
-  redis:
-    image: redis:7-alpine
-    container_name: civictrack-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ============================================
-  # Backend Service (UPDATED)
+  # Backend Service
   # ============================================
   backend:
     build:
@@ -56,20 +36,14 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
       - DEFAULT_SEARCH_RADIUS=${DEFAULT_SEARCH_RADIUS}
       - MAX_SEARCH_RADIUS=${MAX_SEARCH_RADIUS}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      # ============================================
-      # NEW: Redis Configuration for BullMQ
-      # ============================================
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL}
+      - REDIS_URL=${REDIS_URL}
     networks:
       - app-network
     volumes:
       - backend_uploads:/app/uploads
-    depends_on:
-      redis:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://backend:5000/api/health || exit 1"]
       interval: 30s
@@ -78,7 +52,7 @@ services:
       start_period: 60s
 
   # ============================================
-  # Frontend Service (NO CHANGES NEEDED)
+  # Frontend Service
   # ============================================
   frontend:
     build:
@@ -106,4 +80,3 @@ networks:
 
 volumes:
   backend_uploads:
-  redis_data:  # NEW: Persistent storage for Redis

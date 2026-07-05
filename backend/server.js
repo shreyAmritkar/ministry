@@ -16,7 +16,6 @@ const healthRoutes = require('./routes/healthRoutes');
 const { initializeSocket } = require('./config/socket.config');
 const notificationService = require('./services/notificationService');
 const aiAnalysisWorker = require('./workers/report.worker');
-const mediaProcessingWorker = require('./workers/media.worker');
 const notificationWorker = require('./workers/notification.worker');
 // require('./utils/keepAlive');
 // console.log('🚀 BullMQ workers initialized');
@@ -24,8 +23,22 @@ const app = express();
 
 // Security Middleware
 app.use(helmet());
+
+// Allow a comma-separated list of origins via ALLOWED_ORIGINS, falling back
+// to the single CLIENT_URL for simple single-frontend deployments.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.CLIENT_URL || 'http://localhost:3000')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
 app.use(cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: (origin, callback) => {
+        // Allow non-browser requests (no Origin header, e.g. curl/Postman/server-to-server)
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
 }));
 
@@ -34,8 +47,8 @@ app.use(mongoSanitize());
 
 // Rate Limiting
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100,
     message: 'Too many requests from this IP, please try again later'
 });
 app.use('/api/', limiter);
@@ -110,7 +123,6 @@ process.on('SIGTERM', async () => {
     console.log('SIGTERM received, closing workers...');
     await Promise.all([
         aiAnalysisWorker.close(),
-        mediaProcessingWorker.close(),
         notificationWorker.close(),
     ]);
     process.exit(0);
@@ -120,7 +132,6 @@ process.on('SIGINT', async () => {
     console.log('SIGINT received, closing workers...');
     await Promise.all([
         aiAnalysisWorker.close(),
-        mediaProcessingWorker.close(),
         notificationWorker.close(),
     ]);
     process.exit(0);

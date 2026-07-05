@@ -26,22 +26,6 @@ exports.getOfficialScorecard = asyncHandler(async (req, res) => {
 });
 
 /**
- * @route   GET /api/v1/officials/:id/scorecard/comparison
- * @desc    Get official's scorecard with ward comparison
- * @access  Public
- */
-exports.getOfficialScorecardWithComparison = asyncHandler(async (req, res) => {
-    const { id } = req.params;
-
-    const scorecard = await officialService.compareWithWardAverage(id);
-
-    return ApiResponse.success(
-        res,
-        scorecard,
-        'Scorecard with comparison retrieved successfully'
-    );
-});
-/**
  * @route   GET /api/v1/officials/my-scorecard
  * @desc    Get official's scorecard
  * @access  Private

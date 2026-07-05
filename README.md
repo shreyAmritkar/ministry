@@ -1,5 +1,5 @@
 # CivicTrack
-
+docker compose -f dev.yml up -d
 A real-time civic issue reporting platform connecting citizens with government officials for efficient problem resolution.
 
 ## Overview
@@ -17,6 +17,7 @@ CivicTrack enables citizens to report civic issues (potholes, streetlights, garb
 **Backend**: Node.js, Express, MongoDB, Redis, Bull MQ, Socket.io  
 **Frontend**: Next.js 14, TypeScript, Tailwind CSS  
 **Storage**: Cloudinary + GridFS hybrid  
+**AI**: OpenRouter (OpenAI-compatible) for report categorization  
 **Infrastructure**: Docker, Docker Compose
 
 ## Quick Start
@@ -37,6 +38,7 @@ Access: Frontend at `http://localhost:3000`, Backend at `http://localhost:5000`
 **Backend**
 ```bash
 cd backend
+cp .env.example .env   # fill in MONGODB_URI, JWT_SECRET, OPENROUTER_API_KEY, etc.
 npm install
 npm run seed:admin
 npm run dev
@@ -48,6 +50,18 @@ cd frontend
 npm install
 npm run dev
 ```
+
+### AI Categorization Setup
+
+Report categorization runs on [OpenRouter](https://openrouter.ai), which exposes an OpenAI-compatible API in front of many underlying models. Set these in `backend/.env`:
+
+```
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=openai/gpt-4o-mini
+```
+
+Get an API key at https://openrouter.ai/keys. `OPENROUTER_MODEL` can be swapped to any model slug OpenRouter supports without any code changes.
 
 
 ## Key API Endpoints

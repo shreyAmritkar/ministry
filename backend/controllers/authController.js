@@ -9,6 +9,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
+const notificationService = require('../services/notificationService');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -56,6 +57,19 @@ exports.register = asyncHandler(async (req, res) => {
         userType: finalUserType ,
         role: finalUserType,
         startDate
+    });
+
+    // Generate email verification token and send verification email.
+    // Failure to send should not block registration.
+    const verificationToken = user.createVerificationToken();
+    await user.save({ validateBeforeSave: false });
+
+    notificationService.sendEmail({
+        to: user.email,
+        subject: 'Verify your CivicTrack account',
+        html: notificationService.getVerificationEmailTemplate(user, verificationToken)
+    }).catch((error) => {
+        console.error('Failed to send verification email:', error);
     });
 
     // Generate token
@@ -140,7 +154,6 @@ exports.logout = asyncHandler(async (req, res) => {
  * @access  Private
  */
 exports.getMe = asyncHandler(async (req, res) => {
-    // console.log(req.user);
     const user = await User.findById(req.user._id);
 
     return ApiResponse.success(
@@ -212,16 +225,25 @@ exports.forgotPassword = asyncHandler(async (req, res) => {
 
     await user.save({ validateBeforeSave: false });
 
-    // In production, send email here
-    // For now, return token directly (NOT SECURE - only for development)
+    // Send the reset link via email; never return the raw token in the response.
+    const emailSent = await notificationService.sendEmail({
+        to: user.email,
+        subject: 'Reset your CivicTrack password',
+        html: notificationService.getPasswordResetEmailTemplate(user, resetToken)
+    });
+
+    if (!emailSent) {
+        // Roll back the token so a failed email doesn't leave a valid reset token stranded
+        user.passwordResetToken = undefined;
+        user.passwordResetExpiry = undefined;
+        await user.save({ validateBeforeSave: false });
+        throw new ApiError('Failed to send password reset email. Please try again later.', 500);
+    }
 
     return ApiResponse.success(
         res,
-        {
-            resetToken,
-            message: 'Password reset token generated. In production, this would be sent via email.'
-        },
-        'Password reset token generated'
+        null,
+        'Password reset instructions have been sent to your email'
     );
 });
 

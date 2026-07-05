@@ -133,58 +133,7 @@ const assignReportToOfficial = async (latitude, longitude, date) => {
     }
 };
 
-/**
- * Batch assignment for multiple reports
- * Useful for data migration or bulk imports
- */
-const batchAssignReportsToOfficials = async (reports) => {
-    const results = [];
-
-    for (const report of reports) {
-        // Ensure coordinates are [longitude, latitude] for GeoJSON standard, but use Lat/Long for the function call
-        const latitude = report.location.coordinates[1];
-        const longitude = report.location.coordinates[0];
-
-        try {
-            const assignment = await assignReportToOfficial(
-                latitude,
-                longitude,
-                report.createdAt
-            );
-
-            results.push({
-                reportId: report._id,
-                success: true,
-                ...assignment
-            });
-        } catch (error) {
-            results.push({
-                reportId: report._id,
-                success: false,
-                error: error.message
-            });
-        }
-    }
-
-    return results;
-};
-
-/**
- * Check if an official is still responsible for a city
- * Uses the tenure ID for lookup
- */
-const isOfficialStillResponsible = async (tenureId, currentDate = new Date()) => {
-    const tenure = await OfficialTenure.findById(tenureId);
-
-    if (!tenure) return false;
-
-    // Use the virtual property defined in the schema for clean logic
-    return tenure.isCurrentlyActive;
-};
-
 module.exports = {
     assignReportToOfficial,
     getCityFromCoordinates,
-    batchAssignReportsToOfficials,
-    isOfficialStillResponsible
 };

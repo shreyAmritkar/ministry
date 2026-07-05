@@ -31,8 +31,11 @@ try {
             }
         };
 
-        // Add TLS for production (Upstash requires TLS)
-        if (process.env.NODE_ENV === 'production') {
+        // Add TLS only if the connection string requests it (e.g. Upstash uses rediss://).
+        // Do NOT key this off NODE_ENV — a self-hosted Docker Redis in production
+        // still speaks plain redis://, and forcing TLS onto it causes the client to
+        // hang mid-handshake, which surfaces as a confusing ETIMEDOUT.
+        if (redisUrl.startsWith('rediss://')) {
             redisOptions.tls = {
                 rejectUnauthorized: false
             };

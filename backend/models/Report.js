@@ -163,6 +163,7 @@ const reportSchema = new mongoose.Schema({
         },
         verifiedAt: Date,
         verificationComment: String,
+        reminderSentAt: Date,
     },
 
     // NEW: Notification tracking

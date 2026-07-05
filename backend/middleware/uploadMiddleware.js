@@ -5,11 +5,11 @@
 const multer = require('multer');
 const ApiError = require('../utils/ApiError');
 
-// File size limits (in bytes)
+// File size limits (in bytes), configurable via environment variables
 const FILE_SIZE_LIMITS = {
-    IMAGE: 10 * 1024 * 1024,        // 10MB
-    VIDEO_CLOUDINARY: 10 * 1024 * 1024,  // 10MB
-    VIDEO_GRIDFS: 500 * 1024 * 1024      // 500MB
+    IMAGE: parseInt(process.env.MAX_IMAGE_SIZE, 10) || 10 * 1024 * 1024,        // default 10MB
+    VIDEO_CLOUDINARY: parseInt(process.env.MAX_VIDEO_SIZE, 10) || 10 * 1024 * 1024,  // default 10MB
+    VIDEO_GRIDFS: parseInt(process.env.MAX_GRIDFS_VIDEO_SIZE, 10) || 500 * 1024 * 1024      // default 500MB
 };
 
 // Allowed MIME types

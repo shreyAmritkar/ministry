@@ -175,6 +175,7 @@ class NotificationService {
             // Update report
             report.resolutionDetails.verificationDeadline = verificationDeadline;
             report.resolutionDetails.verificationStatus = 'pending_verification';
+            report.resolutionDetails.reminderSentAt = undefined;
 
             // Add notification to report (legacy)
             report.notifications.push({
@@ -227,6 +228,11 @@ class NotificationService {
                 return;
             }
 
+            if (report.resolutionDetails.reminderSentAt) {
+                // Already reminded once for this resolution cycle - don't spam the user.
+                return;
+            }
+
             const hoursLeft = Math.round(
                 (report.resolutionDetails.verificationDeadline - new Date()) / (1000 * 60 * 60)
             );
@@ -258,6 +264,8 @@ class NotificationService {
                     sentAt: new Date(),
                     sentTo: report.reportedBy._id
                 });
+
+                report.resolutionDetails.reminderSentAt = new Date();
 
                 await report.save();
 
@@ -492,6 +500,66 @@ class NotificationService {
             <p>© CivicTrack - Building Better Communities</p>
             <p>This is an automated message. Please do not reply to this email.</p>
           </div>
+        </div>
+      </body>
+      </html>
+    `;
+    }
+
+    /**
+     * Password reset email template
+     */
+    getPasswordResetEmailTemplate(user, resetToken) {
+        const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
+
+        return `
+      <!DOCTYPE html>
+      <html>
+      <body style="font-family: Arial, sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #3b82f6;">Password Reset Request</h2>
+
+          <p>Hello ${user.name},</p>
+
+          <p>We received a request to reset your password. Click the button below to choose a new one. This link expires in 30 minutes.</p>
+
+          <div style="text-align: center; margin: 20px 0;">
+            <a href="${resetUrl}" style="display: inline-block; padding: 12px 24px; background: #3b82f6; color: white; text-decoration: none; border-radius: 6px;">
+              Reset Password
+            </a>
+          </div>
+
+          <p style="color: #6b7280; font-size: 12px;">If you didn't request this, you can safely ignore this email.</p>
+        </div>
+      </body>
+      </html>
+    `;
+    }
+
+    /**
+     * Email verification template
+     */
+    getVerificationEmailTemplate(user, verificationToken) {
+        const verifyUrl = `${process.env.CLIENT_URL}/verify-email/${verificationToken}`;
+
+        return `
+      <!DOCTYPE html>
+      <html>
+      <body style="font-family: Arial, sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #10b981;">Welcome to CivicTrack!</h2>
+
+          <p>Hello ${user.name},</p>
+
+          <p>Please verify your email address to activate your account. This link expires in 24 hours.</p>
+
+          <div style="text-align: center; margin: 20px 0;">
+            <a href="${verifyUrl}" style="display: inline-block; padding: 12px 24px; background: #10b981; color: white; text-decoration: none; border-radius: 6px;">
+              Verify Email
+            </a>
+          </div>
+
+          <p style="color: #6b7280; font-size: 12px;">If you didn't create this account, you can safely ignore this email.</p>
         </div>
       </body>
       </html>

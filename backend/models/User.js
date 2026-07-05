@@ -106,7 +106,6 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ email: 1 });
 userSchema.index({ userType: 1, isActive: 1 });
 userSchema.index({ 'officialDetails.department': 1 });
-userSchema.index({ 'officialDetails.city': 1, userType: 1 }); // ADDED: New index for quick official lookup by city
 
 // Virtuals (Retained)
 userSchema.virtual('reports', {

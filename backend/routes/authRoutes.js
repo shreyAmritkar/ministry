@@ -1,8 +1,6 @@
 // ============================================
 // routes/authRoutes.js (UPDATED)
 // ============================================
-console.log("Auth routes loaded");
-
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
