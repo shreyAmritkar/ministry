@@ -1,39 +1,32 @@
 // ============================================
-// config/database.js (UPDATED - Added GridFS Init)
+// config/database.js
+// PostgreSQL is now the primary database (users, reports, tenures,
+// notifications). A slim MongoDB connection is kept ONLY for GridFS
+// video storage, per the migration decision to leave file storage as-is.
 // ============================================
+const { connectDB: connectPostgres } = require('../db/pool');
 const mongoose = require('mongoose');
 
 const connectDB = async () => {
-    try {
-        const conn = await mongoose.connect(process.env.MONGODB_URI, {
-            dbName: process.env.DB_NAME || 'civictrack'
-        });
+    // 1. PostgreSQL — primary datastore
+    await connectPostgres();
 
-        console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    // 2. MongoDB — GridFS only (large video files)
+    if (process.env.MONGODB_URI) {
+        try {
+            const conn = await mongoose.connect(process.env.MONGODB_URI, {
+                dbName: process.env.DB_NAME || 'civictrack',
+            });
+            console.log(`✅ MongoDB (GridFS) connected: ${conn.connection.host}`);
 
-        // Create indexes on connection
-        await createIndexes();
-
-        // Initialize GridFS after successful connection
-        const { initGridFS } = require('./gridfs');
-        initGridFS();
-
-    } catch (error) {
-        console.error(`❌ MongoDB Connection Error: ${error.message}`);
-        process.exit(1);
-    }
-};
-
-const createIndexes = async () => {
-    try {
-        const Report = require('../models/Report');
-        const OfficialTenure = require('../models/OfficialTenure');
-
-        await Report.createIndexes();
-        await OfficialTenure.createIndexes();
-        console.log('✅ Database indexes created');
-    } catch (error) {
-        console.error('Index creation error:', error.message);
+            const { initGridFS } = require('./gridfs');
+            initGridFS();
+        } catch (error) {
+            // Non-fatal: large-video upload/streaming just won't work until this is fixed.
+            console.error(`⚠️  MongoDB (GridFS) connection error: ${error.message}`);
+        }
+    } else {
+        console.warn('⚠️  MONGODB_URI not set — GridFS video storage is disabled.');
     }
 };
 

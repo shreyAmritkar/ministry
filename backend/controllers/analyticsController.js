@@ -5,8 +5,7 @@
 const Report = require('../models/Report');
 const User = require('../models/User');
 const asyncHandler = require("../utils/asyncHandler");
-const {success} = require("../utils/ApiResponse");
-
+const { success } = require("../utils/ApiResponse");
 
 /**
  * @route   GET /api/v1/analytics/dashboard
@@ -14,44 +13,24 @@ const {success} = require("../utils/ApiResponse");
  * @access  Public
  */
 exports.getDashboardStats = asyncHandler(async (req, res) => {
-    // Total reports
-    const totalReports = await Report.countDocuments();
+    const totalReports = await Report.count();
 
-    // Reports by status
-    const statusCounts = await Report.aggregate([
-        {
-            $group: {
-                _id: '$status',
-                count: { $sum: 1 }
-            }
-        }
-    ]);
+    const statusCounts = await Report.countAllByStatus();
 
-    // Active officials
-    const activeOfficials = await User.countDocuments({
-        userType: 'official',
-        isActive: true
-    });
+    const activeOfficials = await User.count({ userType: 'official', isActive: true });
 
-    // Reports by category
-    const categoryBreakdown = await Report.aggregate([
-        {
-            $group: {
-                _id: '$category',
-                count: { $sum: 1 }
-            }
-        },
-        { $sort: { count: -1 } }
-    ]);
+    const categoryBreakdown = await Report.countAllByCategory();
 
-    // Recent reports
-    const recentReports = await Report.find()
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .populate('reportedBy', 'name')
-        .select('title status category createdAt');
+    const recentReportsRaw = await Report.findAll({}, { limit: 5, offset: 0 });
+    const recentReports = [];
+    for (const r of recentReportsRaw) {
+        await Report.populateUsers(r, 'name');
+        recentReports.push({
+            title: r.title, status: r.status, category: r.category,
+            createdAt: r.createdAt, reportedBy: r.reportedBy,
+        });
+    }
 
-    // Calculate resolution rate
     const solvedReports = statusCounts.find(s => s._id === 'Solved')?.count || 0;
     const resolutionRate = totalReports > 0
         ? Math.round((solvedReports / totalReports) * 100)

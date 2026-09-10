@@ -1,10 +1,10 @@
 // ============================================
-// hooks/useAuth.tsx (UPDATED - Add token export)
+// hooks/useAuth.tsx
 // ============================================
 'use client';
 
 import React, {createContext, useCallback, useContext, useEffect, useState} from 'react';
-import api, { setAuthToken } from '@/lib/api';
+import api, { setAuthTokens, getAccessToken, getRefreshToken, onAccessTokenChange } from '@/lib/api';
 import { useRouter, usePathname } from 'next/navigation';
 
 type User = {
@@ -17,7 +17,7 @@ type User = {
 
 type AuthContextType = {
     user: User | null;
-    token: string | null; // NEW: Export token for Socket.IO
+    token: string | null; // access token — exported for Socket.IO auth
     loading: boolean;
     login: (email: string, password: string) => Promise<User>;
     register: (payload: {
@@ -28,6 +28,7 @@ type AuthContextType = {
         userType?: string;
     }) => Promise<User>;
     logout: () => void;
+    logoutAllDevices: () => Promise<void>;
     refreshUser: () => Promise<User | null>;
 };
 
@@ -41,12 +42,11 @@ export function useAuthContext() {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
-    const [token, setToken] = useState<string | null>(null); // NEW: Track token
+    const [token, setToken] = useState<string | null>(null); // access token only
     const [loading, setLoading] = useState(true);
     const router = useRouter();
     const pathname = usePathname();
 
-    // Refresh function
     const refreshUser = useCallback(async (): Promise<User | null> => {
         try {
             const res = await api.get('/auth/me');
@@ -57,22 +57,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.error('Failed to refresh user:', err);
             setUser(null);
             setToken(null);
-            setAuthToken(null);
-            if (typeof window !== 'undefined') {
-                localStorage.removeItem('token');
-            }
+            setAuthTokens(null, null);
             return null;
         }
     }, []);
 
-    // Logout function
+    // Best-effort server-side revocation of the refresh token, then
+    // clear local state regardless of whether the network call succeeds
+    // (the user should always be able to log out locally).
     const logout = useCallback(() => {
+        const refreshToken = getRefreshToken();
+
         setUser(null);
         setToken(null);
-        setAuthToken(null);
+        setAuthTokens(null, null);
 
-        if (typeof window !== 'undefined') {
-            localStorage.removeItem('token');
+        if (refreshToken) {
+            api.post('/auth/logout', { refreshToken }).catch(() => {
+                // Ignore — tokens are already cleared client-side either way.
+            });
         }
 
         if (pathname !== '/auth/login') {
@@ -80,24 +83,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     }, [pathname, router]);
 
-    // Initial Auth Check
+    const logoutAllDevices = useCallback(async () => {
+        await api.post('/auth/logout-all');
+        logout();
+    }, [logout]);
+
+    // Initial auth check — restore session from localStorage on load
     useEffect(() => {
         const init = async () => {
             try {
-                if (typeof window !== 'undefined') {
-                    const storedToken = localStorage.getItem('token');
-                    if (storedToken) {
-                        setToken(storedToken);
-                        setAuthToken(storedToken);
-                        await refreshUser();
-                    }
+                const storedAccessToken = getAccessToken();
+                if (storedAccessToken) {
+                    setToken(storedAccessToken);
+                    await refreshUser(); // if the access token has expired, api.ts's
+                                          // interceptor transparently refreshes it
+                                          // and retries this call before we see a 401
                 }
             } catch (e) {
                 console.error('Auth initialization error:', e);
-                if (typeof window !== 'undefined') {
-                    localStorage.removeItem('token');
-                }
-                setAuthToken(null);
+                setAuthTokens(null, null);
                 setToken(null);
             } finally {
                 setLoading(false);
@@ -106,39 +110,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         init();
     }, [refreshUser]);
 
-    // Cross-Tab Synchronization
+    // Keep React state in sync when the access token changes from
+    // OUTSIDE React — i.e. the silent-refresh interceptor in lib/api.ts,
+    // which runs in an axios error handler, not an event handler.
+    useEffect(() => {
+        return onAccessTokenChange((newAccessToken) => {
+            setToken(newAccessToken);
+            if (!newAccessToken) setUser(null);
+        });
+    }, []);
+
+    // Cross-tab synchronization
     useEffect(() => {
         if (typeof window === 'undefined') return;
 
         const handleStorageChange = (event: StorageEvent) => {
-            if (event.key === 'token') {
+            if (event.key === 'accessToken') {
                 const newToken = event.newValue;
-
                 if (newToken) {
                     setToken(newToken);
-                    setAuthToken(newToken);
                     refreshUser();
                 } else {
-                    logout();
+                    // Another tab logged out — mirror it here without
+                    // re-triggering a network call to /auth/logout.
+                    setUser(null);
+                    setToken(null);
+                    if (pathname !== '/auth/login') {
+                        router.replace('/auth/login');
+                    }
                 }
             }
         };
 
         window.addEventListener('storage', handleStorageChange);
-        return () => {
-            window.removeEventListener('storage', handleStorageChange);
-        };
-    }, [refreshUser, logout]);
+        return () => window.removeEventListener('storage', handleStorageChange);
+    }, [refreshUser, pathname, router]);
 
     const login = async (email: string, password: string) => {
         const res = await api.post('/auth/login', { email, password });
-        const newToken = res.data?.data?.token ?? res.data?.token ?? null;
-        const userData = res.data?.data?.user ?? res.data?.user ?? null;
+        const newAccessToken = res.data?.data?.accessToken ?? null;
+        const newRefreshToken = res.data?.data?.refreshToken ?? null;
+        const userData = res.data?.data?.user ?? null;
 
-        if (!newToken) throw new Error('No token returned from login');
+        if (!newAccessToken || !newRefreshToken) {
+            throw new Error('No tokens returned from login');
+        }
 
-        setToken(newToken);
-        setAuthToken(newToken);
+        setToken(newAccessToken);
+        setAuthTokens(newAccessToken, newRefreshToken);
         setUser(userData);
         return userData;
     };
@@ -151,24 +170,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         userType?: string;
     }) => {
         const res = await api.post('/auth/register', payload);
-        const newToken = res.data?.data?.token ?? res.data?.token ?? null;
-        const userData = res.data?.data?.user ?? res.data?.user ?? null;
+        const newAccessToken = res.data?.data?.accessToken ?? null;
+        const newRefreshToken = res.data?.data?.refreshToken ?? null;
+        const userData = res.data?.data?.user ?? null;
 
-        if (!newToken) throw new Error('No token returned from register');
+        if (!newAccessToken || !newRefreshToken) {
+            throw new Error('No tokens returned from register');
+        }
 
-        setToken(newToken);
-        setAuthToken(newToken);
+        setToken(newAccessToken);
+        setAuthTokens(newAccessToken, newRefreshToken);
         setUser(userData);
         return userData;
     };
 
     const value: AuthContextType = {
         user,
-        token, // NEW: Export token
+        token,
         loading,
         login,
         register,
         logout,
+        logoutAllDevices,
         refreshUser,
     };
 

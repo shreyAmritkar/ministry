@@ -2,6 +2,30 @@ version: '3.8'
 
 services:
   # ============================================
+  # PostgreSQL (primary datastore: users, reports, tenures, notifications)
+  # ============================================
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: civictrack-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-civictrack}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-civictrack}
+      - POSTGRES_DB=${POSTGRES_DB:-civictrack}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-civictrack}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
   # Backend Service
   # ============================================
   backend:
@@ -12,15 +36,24 @@ services:
     restart: unless-stopped
     ports:
       - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       - NODE_ENV=${NODE_ENV}
       - PORT=${PORT}
       - CLIENT_URL=${CLIENT_URL}
+      - DATABASE_URL=${DATABASE_URL:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-civictrack}}
+      - DB_USER=${DB_USER:-${POSTGRES_USER:-civictrack}}
+      - DB_PASSWORD=${DB_PASSWORD:-${POSTGRES_PASSWORD:-civictrack}}
+      - DB_SSL=${DB_SSL:-false}
+      # Kept only for GridFS video storage — see the migration decision to
+      # leave file storage where it was.
       - MONGODB_URI=${MONGODB_URI}
       - DB_NAME=${DB_NAME}
       - JWT_SECRET=${JWT_SECRET}
-      - JWT_EXPIRE=${JWT_EXPIRE}
-      - JWT_COOKIE_EXPIRE=${JWT_COOKIE_EXPIRE}
+      - JWT_ACCESS_EXPIRE=${JWT_ACCESS_EXPIRE}
+      - JWT_REFRESH_EXPIRE_DAYS=${JWT_REFRESH_EXPIRE_DAYS}
       - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
       - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
       - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
@@ -80,3 +113,4 @@ networks:
 
 volumes:
   backend_uploads:
+  postgres_data:

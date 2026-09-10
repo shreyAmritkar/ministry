@@ -1,21 +1,20 @@
 // ============================================
 // components/notifications/NotificationProvider.tsx
+// This is the "opens the connection" box — mounts NotificationsProvider
+// (one shared SSE connection) once, near the root of the app. Every
+// consumer below it (Bell, Dropdown, Item) reads the same state via
+// the useNotifications() context hook instead of opening their own.
 // ============================================
 'use client';
 
 import { useEffect } from 'react';
-import { useSocket } from '@/hooks/useSocket';
 import { useAuth } from '@/hooks/useAuth';
-import {useNotifications} from "@/hooks/useNotifications";
+import { NotificationsProvider, useNotifications } from '@/hooks/useNotifications';
 
-export default function NotificationProvider({
-                                                 children,
-                                             }: {
-    children: React.ReactNode;
-}) {
-    const { socket, connected } = useSocket();
+function NotificationEffects({ children }: { children: React.ReactNode }) {
     const { user } = useAuth();
-    useNotifications();
+    const { connected } = useNotifications();
+
     // Request browser notification permission
     useEffect(() => {
         if (user && 'Notification' in window && Notification.permission === 'default') {
@@ -31,4 +30,16 @@ export default function NotificationProvider({
     }, [connected]);
 
     return <>{children}</>;
+}
+
+export default function NotificationProvider({
+                                                 children,
+                                             }: {
+    children: React.ReactNode;
+}) {
+    return (
+        <NotificationsProvider>
+            <NotificationEffects>{children}</NotificationEffects>
+        </NotificationsProvider>
+    );
 }

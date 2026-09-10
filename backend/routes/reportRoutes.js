@@ -11,6 +11,7 @@ const { authorize, authorizeOfficialOrAdmin } = require('../middleware/authorize
 router.get('/', reportController.getAllReports);
 router.get('/nearby', reportController.getReportsNearby);
 router.get('/:id', reportController.getReportById);
+router.get('/:id/stream', reportController.streamReport); // SSE — public, same access as viewing the report itself
 
 // Protected routes (require authentication)
 router.use(protect);

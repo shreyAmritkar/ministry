@@ -12,21 +12,21 @@ const errorHandler = (err, req, res, next) => {
         console.error(err);
     }
 
-    // Mongoose bad ObjectId
-    if (err.name === 'CastError') {
+    // Invalid UUID passed as an :id param
+    if (err.code === '22P02') {
         error = new ApiError('Resource not found', 404);
     }
 
-    // Mongoose duplicate key
-    if (err.code === 11000) {
-        const field = Object.keys(err.keyValue)[0];
+    // Postgres unique_violation (was Mongoose's duplicate key error 11000)
+    if (err.code === '23505') {
+        const match = /Key \((.+?)\)=/.exec(err.detail || '');
+        const field = match ? match[1] : 'field';
         error = new ApiError(`${field} already exists`, 400);
     }
 
-    // Mongoose validation error
-    if (err.name === 'ValidationError') {
-        const message = Object.values(err.errors).map(val => val.message).join(', ');
-        error = new ApiError(message, 400);
+    // Postgres check_violation / not_null_violation (was Mongoose ValidationError)
+    if (err.code === '23514' || err.code === '23502') {
+        error = new ApiError(err.detail || err.message || 'Validation failed', 400);
     }
 
     // JWT errors

@@ -7,14 +7,12 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const helmet = require('helmet');
-const mongoSanitize = require('express-mongo-sanitize');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/database');
 const errorHandler = require('./middleware/errorHandler');
 const CronJobs = require('./utils/cronJobs');
 const healthRoutes = require('./routes/healthRoutes');
-const { initializeSocket } = require('./config/socket.config');
-const notificationService = require('./services/notificationService');
+const sseService = require('./services/sseService');
 const aiAnalysisWorker = require('./workers/report.worker');
 const notificationWorker = require('./workers/notification.worker');
 // require('./utils/keepAlive');
@@ -43,8 +41,6 @@ app.use(cors({
 }));
 
 
-app.use(mongoSanitize());
-
 // Rate Limiting
 const limiter = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
@@ -58,14 +54,6 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const server = http.createServer(app);
 
-// Initialize Socket.IO
-const io = initializeSocket(server);
-
-// Attach Socket.IO to notification service
-notificationService.setSocketIO(io);
-
-// Initialize cron jobs
-CronJobs.init();
 // Health Check
 // app.get('/health', (req, res) => {
 //     res.status(200).json({
@@ -103,36 +91,43 @@ const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB first, then start server
 // GridFS will be initialized automatically in connectDB
-connectDB().then(() => {
-    server.listen(PORT, '0.0.0.0', () => {
-        console.log(`🚀 CivicTrack API running on port ${PORT}`);
-        console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+//
+// Guarded so `require('./server')` from a test file just gets `app`
+// back (for supertest) without opening a real port, connecting to
+// Mongo, or registering signal handlers.
+if (require.main === module) {
+    CronJobs.init();
+
+    connectDB().then(() => {
+        server.listen(PORT, '0.0.0.0', () => {
+            console.log(`🚀 CivicTrack API running on port ${PORT}`);
+            console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+        });
+    }).catch((error) => {
+        console.error('Failed to start server:', error);
+        process.exit(1);
     });
-}).catch((error) => {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-});
 
-// ============================================
-// Initialize BullMQ Workers
-// ============================================
+    // Graceful shutdown
+    process.on('SIGTERM', async () => {
+        console.log('SIGTERM received, closing workers...');
+        sseService.closeAll();
+        await Promise.all([
+            aiAnalysisWorker.close(),
+            notificationWorker.close(),
+        ]);
+        process.exit(0);
+    });
 
+    process.on('SIGINT', async () => {
+        console.log('SIGINT received, closing workers...');
+        sseService.closeAll();
+        await Promise.all([
+            aiAnalysisWorker.close(),
+            notificationWorker.close(),
+        ]);
+        process.exit(0);
+    });
+}
 
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-    console.log('SIGTERM received, closing workers...');
-    await Promise.all([
-        aiAnalysisWorker.close(),
-        notificationWorker.close(),
-    ]);
-    process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-    console.log('SIGINT received, closing workers...');
-    await Promise.all([
-        aiAnalysisWorker.close(),
-        notificationWorker.close(),
-    ]);
-    process.exit(0);
-});
+module.exports = { app, server };

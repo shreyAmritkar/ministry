@@ -1,14 +1,12 @@
 // ============================================
-// services/notificationService.js (MERGED - Email + Socket.IO + In-App)
+// services/notificationService.js (MERGED - Email + SSE + In-App)
 // ============================================
 const nodemailer = require('nodemailer');
 const User = require('../models/User');
 const Report = require('../models/Report');
 const Notification = require('../models/Notification');
+const sseService = require('./sseService');
 require('dotenv').config();
-
-// Socket.IO will be initialized later
-let io = null;
 
 class NotificationService {
     constructor() {
@@ -25,24 +23,6 @@ class NotificationService {
                 pass: process.env.EMAIL_PASSWORD
             }
         });
-    }
-
-    /**
-     * Set Socket.IO instance (called from server.js)
-     */
-    setSocketIO(socketIO) {
-        io = socketIO;
-        console.log('✅ Socket.IO attached to NotificationService');
-    }
-
-    /**
-     * Get Socket.IO instance
-     */
-    getIO() {
-        if (!io) {
-            console.warn('⚠️ Socket.IO not initialized yet');
-        }
-        return io;
     }
 
     // ============================================
@@ -63,7 +43,7 @@ class NotificationService {
                 priority: data.priority || 'normal',
             });
 
-            await notification.populate('recipient', 'name email');
+            await Notification.populateRecipient(notification);
 
             // Emit via Socket.IO if available
             this.emitToUser(data.recipientId, 'notification', notification);
@@ -163,28 +143,23 @@ class NotificationService {
      */
     async notifyResolutionClaimed(reportId) {
         try {
-            const report = await Report.findById(reportId)
-                .populate('reportedBy', 'name email')
-                .populate('assignedTo', 'name officialDetails');
-
+            let report = await Report.findById(reportId);
             if (!report) return;
+            report = await Report.populateUsers(report, 'name email officialDetails');
 
             const verificationDeadline = new Date();
             verificationDeadline.setDate(verificationDeadline.getDate() + 2); // 2 days
 
             // Update report
+            await Report.setVerificationDeadline(report._id, verificationDeadline);
             report.resolutionDetails.verificationDeadline = verificationDeadline;
-            report.resolutionDetails.verificationStatus = 'pending_verification';
-            report.resolutionDetails.reminderSentAt = undefined;
 
             // Add notification to report (legacy)
-            report.notifications.push({
+            await Report.addReportNotification(report._id, {
                 type: 'resolution_request',
                 sentAt: new Date(),
                 sentTo: report.reportedBy._id
             });
-
-            await report.save();
 
             // Create in-app notification (NEW)
             await this.createNotification({
@@ -221,12 +196,11 @@ class NotificationService {
      */
     async sendVerificationReminder(reportId) {
         try {
-            const report = await Report.findById(reportId)
-                .populate('reportedBy', 'name email');
-
+            let report = await Report.findById(reportId);
             if (!report || report.resolutionDetails.verificationStatus !== 'pending_verification') {
                 return;
             }
+            report = await Report.populateUsers(report, 'name email');
 
             if (report.resolutionDetails.reminderSentAt) {
                 // Already reminded once for this resolution cycle - don't spam the user.
@@ -259,15 +233,13 @@ class NotificationService {
                 });
 
                 // Add notification to report (legacy)
-                report.notifications.push({
+                await Report.addReportNotification(report._id, {
                     type: 'verification_reminder',
                     sentAt: new Date(),
                     sentTo: report.reportedBy._id
                 });
 
-                report.resolutionDetails.reminderSentAt = new Date();
-
-                await report.save();
+                await Report.setReminderSentAt(report._id, new Date());
 
                 console.log(`⏰ Reminder sent to ${report.reportedBy.email} (${hoursLeft}h left)`);
             }
@@ -281,22 +253,13 @@ class NotificationService {
      */
     async autoVerifyExpiredReports() {
         try {
-            const now = new Date();
-
-            const expiredReports = await Report.find({
-                'resolutionDetails.verificationStatus': 'pending_verification',
-                'resolutionDetails.verificationDeadline': { $lte: now }
-            }).populate('reportedBy', 'name email');
+            const expiredReports = await Report.findExpiredPendingVerification();
 
             console.log(`🤖 Auto-verifying ${expiredReports.length} expired reports...`);
 
-            for (const report of expiredReports) {
-                report.status = 'Solved';
-                report.resolutionDetails.verificationStatus = 'auto_verified';
-                report.resolutionDetails.verifiedAt = new Date();
-                report.resolutionDetails.verificationComment = 'Auto-verified: No response from reporter within 2 days';
-
-                await report.save();
+            for (let report of expiredReports) {
+                await Report.autoVerify(report._id);
+                report = await Report.populateUsers(await Report.findById(report._id), 'name email');
 
                 // Send in-app notification (NEW)
                 await this.createNotification({
@@ -315,10 +278,7 @@ class NotificationService {
                 // Update official's metrics
                 if (report.official_tenure_id) {
                     const OfficialTenure = require('../models/OfficialTenure');
-                    const tenure = await OfficialTenure.findById(report.official_tenure_id);
-                    if (tenure) {
-                        await tenure.updateMetrics();
-                    }
+                    await OfficialTenure.updateMetrics(report.official_tenure_id);
                 }
 
                 console.log(`✅ Auto-verified report ${report._id}`);
@@ -332,46 +292,43 @@ class NotificationService {
     }
 
     // ============================================
-    // SOCKET.IO REAL-TIME METHODS
+    // SSE REAL-TIME METHODS
+    // Method names/signatures kept identical to the old Socket.IO
+    // versions so every caller elsewhere in this file needed zero changes.
     // ============================================
 
     /**
-     * Emit notification to specific user
+     * Push an event to a specific user's open notification stream(s).
      */
     emitToUser(userId, event, data) {
         try {
-            if (io) {
-                io.to(`user:${userId}`).emit(event, data);
-                console.log(`📤 Emitted ${event} to user:${userId}`);
-            }
+            sseService.sendToUser(userId, event, data);
+            console.log(`📤 Emitted ${event} to user:${userId}`);
         } catch (error) {
             console.error('Error emitting to user:', error);
         }
     }
 
     /**
-     * Emit notification to specific role
+     * Push an event to every connected user with a given role.
      */
     emitToRole(role, event, data) {
         try {
-            if (io) {
-                io.to(`role:${role}`).emit(event, data);
-                console.log(`📤 Emitted ${event} to role:${role}`);
-            }
+            sseService.broadcastToRole(role, event, data);
+            console.log(`📤 Emitted ${event} to role:${role}`);
         } catch (error) {
             console.error('Error emitting to role:', error);
         }
     }
 
     /**
-     * Emit report update to all watching that report
+     * Push a report update to everyone currently viewing that report's
+     * detail page (reports/:id/stream).
      */
     emitReportUpdate(reportId, data) {
         try {
-            if (io) {
-                io.to(`report:${reportId}`).emit('report-updated', data);
-                console.log(`📤 Emitted report-updated to report:${reportId}`);
-            }
+            sseService.sendToReport(reportId, 'report-updated', data);
+            console.log(`📤 Emitted report-updated to report:${reportId}`);
         } catch (error) {
             console.error('Error emitting report update:', error);
         }
@@ -385,23 +342,14 @@ class NotificationService {
      * Get user's unread notifications
      */
     async getUnreadNotifications(userId) {
-        return Notification.find({
-            recipient: userId,
-            read: false,
-        })
-            .sort({ createdAt: -1 })
-            .limit(20);
+        return Notification.findUnread(userId, 20);
     }
 
     /**
      * Mark notification as read
      */
     async markAsRead(notificationId, userId) {
-        const notification = await Notification.findOneAndUpdate(
-            { _id: notificationId, recipient: userId },
-            { read: true, readAt: new Date() },
-            { new: true }
-        );
+        const notification = await Notification.markAsRead(notificationId, userId);
 
         if (notification) {
             this.emitToUser(userId, 'notification-read', { notificationId });
@@ -414,10 +362,7 @@ class NotificationService {
      * Mark all notifications as read
      */
     async markAllAsRead(userId) {
-        await Notification.updateMany(
-            { recipient: userId, read: false },
-            { read: true, readAt: new Date() }
-        );
+        await Notification.markAllAsRead(userId);
 
         this.emitToUser(userId, 'notifications-cleared', {});
     }

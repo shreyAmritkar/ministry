@@ -15,21 +15,15 @@ const aiAnalysisWorker = new Worker(
         console.log(`🤖 Processing AI analysis for report: ${reportId}`);
 
         try {
-            // Perform AI analysis
             const aiAnalysis = await aiService.analyzeReportText(title, description);
 
-            // Update report with AI results
-            const report = await Report.findByIdAndUpdate(
-                reportId,
-                {
-                    category: aiAnalysis.category,
-                    priority: aiAnalysis.priority,
-                    title: aiAnalysis.title,
-                    description: aiAnalysis.description,
-                    aiReasoning: aiAnalysis.reasoning,
-                    aiProcessedAt: new Date(),
-                },
-                { new: true }
+            const report = await require('../db/pool').query(
+                `UPDATE reports SET
+                    category = $1, priority = $2, title = $3, description = $4,
+                    ai_reasoning = $5, ai_processed_at = now()
+                 WHERE id = $6 RETURNING id`,
+                [aiAnalysis.category, aiAnalysis.priority, aiAnalysis.title,
+                 aiAnalysis.description, aiAnalysis.reasoning, reportId]
             );
 
             console.log(`✅ AI analysis completed for report: ${reportId}`);
@@ -50,7 +44,6 @@ const aiAnalysisWorker = new Worker(
     }
 );
 
-// Event listeners for monitoring
 aiAnalysisWorker.on('completed', (job) => {
     console.log(`✅ Job ${job.id} completed successfully`);
 });

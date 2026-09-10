@@ -3,11 +3,25 @@
 // Official Tenure Management Controller
 // ============================================
 const OfficialTenure = require('../models/OfficialTenure');
+const Report = require('../models/Report');
 const User = require('../models/User');
 const tenureService = require('../services/tenureService');
 const ApiResponse = require('../utils/ApiResponse');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+
+async function populateOfficialAndAppointer(tenure) {
+    if (!tenure) return tenure;
+    const official = await User.findById(tenure.official);
+    tenure.official = official
+        ? { _id: official._id, name: official.name, email: official.email, phone: official.phone, officialDetails: official.officialDetails }
+        : null;
+    if (tenure.appointedBy) {
+        const appointer = await User.findById(tenure.appointedBy);
+        tenure.appointedBy = appointer ? { _id: appointer._id, name: appointer.name, email: appointer.email } : null;
+    }
+    return tenure;
+}
 
 /**
  * @route   GET /api/v1/tenures
@@ -17,29 +31,23 @@ const asyncHandler = require('../utils/asyncHandler');
 exports.getAllTenures = asyncHandler(async (req, res) => {
     const { city, isActive, position, page = 1, limit = 20 } = req.query;
 
-    const query = {};
+    const filters = {};
+    if (city) filters.city = city;
+    if (isActive !== undefined) filters.isActive = isActive === 'true';
+    if (position) filters.position = position;
 
-    if (city) query.city = city;
-    if (isActive !== undefined) query.isActive = isActive === 'true';
-    if (position) query.position = position;
+    const numLimit = Number(limit);
+    const tenures = await OfficialTenure.findAll(filters, { limit: numLimit, offset: (page - 1) * numLimit });
+    for (const tenure of tenures) {
+        await populateOfficialAndAppointer(tenure);
+    }
 
-    const tenures = await OfficialTenure.find(query)
-        .populate('official', 'name email phone officialDetails')
-        .populate('appointedBy', 'name')
-        .sort({ startDate: -1 })
-        .limit(limit * 1)
-        .skip((page - 1) * limit);
-
-    const total = await OfficialTenure.countDocuments(query);
+    const total = await OfficialTenure.count(filters);
 
     return ApiResponse.paginated(
         res,
         tenures,
-        {
-            total,
-            page: parseInt(page),
-            pages: Math.ceil(total / limit)
-        },
+        { total, page: parseInt(page), pages: Math.ceil(total / numLimit) },
         'Tenures retrieved successfully'
     );
 });
@@ -50,18 +58,20 @@ exports.getAllTenures = asyncHandler(async (req, res) => {
  * @access  Public
  */
 exports.getTenureById = asyncHandler(async (req, res) => {
-    const tenure = await OfficialTenure.findById(req.params.id)
-        .populate('official', 'name email phone officialDetails')
-        .populate('appointedBy', 'name email')
-        .populate({
-            path: 'reports',
-            select: 'title status category createdAt',
-            options: { limit: 10, sort: { createdAt: -1 } }
-        });
+    const tenure = await OfficialTenure.findById(req.params.id);
 
     if (!tenure) {
         throw new ApiError('Tenure not found', 404);
     }
+    await populateOfficialAndAppointer(tenure);
+
+    const reports = await Report.findAll(
+        { official_tenure_id_in: [tenure._id] },
+        { limit: 10, offset: 0 }
+    );
+    tenure.reports = reports.map(r => ({
+        title: r.title, status: r.status, category: r.category, createdAt: r.createdAt,
+    }));
 
     return ApiResponse.success(
         res,
@@ -78,7 +88,7 @@ exports.getTenureById = asyncHandler(async (req, res) => {
 exports.getCurrentOfficialForCity = asyncHandler(async (req, res) => {
     const { city } = req.params;
 
-    const tenure = await OfficialTenure.findCurrentOfficialForcity(city);
+    const tenure = await OfficialTenure.findCurrentOfficialForCity(city);
 
     if (!tenure) {
         throw new ApiError(`No active official found for ${city}`, 404);
@@ -99,9 +109,10 @@ exports.getCurrentOfficialForCity = asyncHandler(async (req, res) => {
 exports.getCityTenureHistory = asyncHandler(async (req, res) => {
     const { city } = req.params;
 
-    const tenures = await OfficialTenure.find({ city })
-        .populate('official', 'name email officialDetails')
-        .sort({ startDate: -1 });
+    const tenures = await OfficialTenure.findAll({ city }, { limit: 1000, offset: 0 });
+    for (const tenure of tenures) {
+        await populateOfficialAndAppointer(tenure);
+    }
 
     return ApiResponse.success(
         res,
@@ -118,14 +129,12 @@ exports.getCityTenureHistory = asyncHandler(async (req, res) => {
 exports.getOfficialTenures = asyncHandler(async (req, res) => {
     const { officialId } = req.params;
 
-    // Verify official exists
     const official = await User.findById(officialId);
     if (!official || official.userType !== 'official') {
         throw new ApiError('Official not found', 404);
     }
 
-    const tenures = await OfficialTenure.find({ official: officialId })
-        .sort({ startDate: -1 });
+    const tenures = await OfficialTenure.findByOfficial(officialId);
 
     return ApiResponse.success(
         res,
@@ -140,29 +149,17 @@ exports.getOfficialTenures = asyncHandler(async (req, res) => {
  * @access  Private/Admin
  */
 exports.createTenure = asyncHandler(async (req, res) => {
-    const {
-        official,
-        city,
-        zone,
-        position,
-        department,
-        startDate,
-        endDate,
+    const { official, city, position, department, startDate, endDate } = req.body;
 
-    } = req.body;
-
-    // Validate required fields
     if (!official || !city || !position || !department || !startDate) {
         throw new ApiError('Please provide all required fields', 400);
     }
 
-    // Verify official exists and is of type 'official'
     const officialUser = await User.findById(official);
     if (!officialUser || officialUser.userType !== 'official') {
         throw new ApiError('Invalid official reference', 400);
     }
 
-    // Check for overlapping tenures
     const overlapping = await tenureService.checkOverlappingTenures(
         city,
         new Date(startDate),
@@ -176,11 +173,9 @@ exports.createTenure = asyncHandler(async (req, res) => {
         );
     }
 
-    // Create tenure
     const tenure = await OfficialTenure.create({
         official,
         city,
-        zone,
         position,
         department,
         startDate: new Date(startDate),
@@ -189,8 +184,7 @@ exports.createTenure = asyncHandler(async (req, res) => {
         isActive: true
     });
 
-    // Populate official details
-    await tenure.populate('official', 'name email phone officialDetails');
+    await populateOfficialAndAppointer(tenure);
 
     return ApiResponse.success(
         res,
@@ -207,27 +201,18 @@ exports.createTenure = asyncHandler(async (req, res) => {
  */
 exports.updateTenure = asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const updates = req.body;
+    const updates = { ...req.body };
 
-    // Don't allow changing official or city through update
     delete updates.official;
     delete updates.city;
 
-
-    const tenure = await OfficialTenure.findById(id);
-
-    if (!tenure) {
+    const existing = await OfficialTenure.findById(id);
+    if (!existing) {
         throw new ApiError('Tenure not found', 404);
     }
 
-    // Update fields
-    Object.keys(updates).forEach(key => {
-        tenure[key] = updates[key];
-    });
-
-    await tenure.save();
-
-    await tenure.populate('official', 'name email phone officialDetails');
+    const tenure = await OfficialTenure.updateById(id, updates);
+    await populateOfficialAndAppointer(tenure);
 
     return ApiResponse.success(
         res,
@@ -249,23 +234,21 @@ exports.endTenure = asyncHandler(async (req, res) => {
         throw new ApiError('Termination reason is required', 400);
     }
 
-    const tenure = await OfficialTenure.findById(id);
-
-    if (!tenure) {
+    const existing = await OfficialTenure.findById(id);
+    if (!existing) {
         throw new ApiError('Tenure not found', 404);
     }
 
-    if (!tenure.isActive) {
+    if (!existing.isActive) {
         throw new ApiError('Tenure is already ended', 400);
     }
 
-    // End tenure
-    await tenure.endTenure(
+    const tenure = await OfficialTenure.endTenure(
+        id,
         reason,
         endDate ? new Date(endDate) : new Date()
     );
-
-    await tenure.populate('official', 'name email phone officialDetails');
+    await populateOfficialAndAppointer(tenure);
 
     return ApiResponse.success(
         res,
@@ -286,11 +269,7 @@ exports.deleteTenure = asyncHandler(async (req, res) => {
         throw new ApiError('Tenure not found', 404);
     }
 
-    // Check if there are reports linked to this tenure
-    const Report = require('../models/Report');
-    const linkedReports = await Report.countDocuments({
-        official_tenure_id: tenure._id
-    });
+    const linkedReports = await Report.count({ official_tenure_id_in: [tenure._id] });
 
     if (linkedReports > 0) {
         throw new ApiError(
@@ -299,7 +278,7 @@ exports.deleteTenure = asyncHandler(async (req, res) => {
         );
     }
 
-    await tenure.deleteOne();
+    await OfficialTenure.deleteById(req.params.id);
 
     return ApiResponse.success(
         res,
@@ -314,20 +293,17 @@ exports.deleteTenure = asyncHandler(async (req, res) => {
  * @access  Private/Admin
  */
 exports.updateTenureMetrics = asyncHandler(async (req, res) => {
-    const tenure = await OfficialTenure.findById(req.params.id);
+    const existing = await OfficialTenure.findById(req.params.id);
 
-    if (!tenure) {
+    if (!existing) {
         throw new ApiError('Tenure not found', 404);
     }
 
-    // Recalculate metrics
-    await tenure.updateMetrics();
+    const tenure = await OfficialTenure.updateMetrics(req.params.id);
 
     return ApiResponse.success(
         res,
-        {
-            metrics: tenure.metrics
-        },
+        { metrics: tenure.metrics },
         'Tenure metrics updated successfully'
     );
 });
@@ -370,45 +346,18 @@ exports.getOfficialAtDate = asyncHandler(async (req, res) => {
  * @access  Public
  */
 exports.getTenureStats = asyncHandler(async (req, res) => {
-    const totalTenures = await OfficialTenure.countDocuments();
-    const activeTenures = await OfficialTenure.countDocuments({ isActive: true });
+    const totalTenures = await OfficialTenure.count();
+    const activeTenures = await OfficialTenure.count({ isActive: true });
 
-    const tenuresByPosition = await OfficialTenure.aggregate([
-        {
-            $group: {
-                _id: '$position',
-                count: { $sum: 1 },
-                active: {
-                    $sum: { $cond: ['$isActive', 1, 0] }
-                }
-            }
-        },
-        { $sort: { count: -1 } }
-    ]);
+    const tenuresByPosition = await OfficialTenure.aggregateByPosition();
+    const tenuresByCity = await OfficialTenure.aggregateByCity();
 
-    const tenuresByZone = await OfficialTenure.aggregate([
-        {
-            $group: {
-                _id: '$zone',
-                count: { $sum: 1 },
-                active: {
-                    $sum: { $cond: ['$isActive', 1, 0] }
-                }
-            }
-        },
-        { $sort: { count: -1 } }
-    ]);
-
-    // Average tenure duration
-    const completedTenures = await OfficialTenure.find({
-        isActive: false,
-        endDate: { $exists: true }
-    });
+    const completedTenures = await OfficialTenure.findCompletedDurations();
 
     let avgDurationDays = 0;
     if (completedTenures.length > 0) {
         const totalDays = completedTenures.reduce((sum, tenure) => {
-            const duration = tenure.endDate - tenure.startDate;
+            const duration = new Date(tenure.end_date) - new Date(tenure.start_date);
             return sum + (duration / (1000 * 60 * 60 * 24));
         }, 0);
         avgDurationDays = Math.round(totalDays / completedTenures.length);
@@ -422,7 +371,7 @@ exports.getTenureStats = asyncHandler(async (req, res) => {
             completedTenures: totalTenures - activeTenures,
             avgDurationDays,
             byPosition: tenuresByPosition,
-            byZone: tenuresByZone
+            byCity: tenuresByCity
         },
         'Tenure statistics retrieved successfully'
     );

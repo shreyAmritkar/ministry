@@ -1,5 +1,4 @@
 # CivicTrack
-docker compose -f dev.yml up -d
 A real-time civic issue reporting platform connecting citizens with government officials for efficient problem resolution.
 
 ## Overview
@@ -14,11 +13,17 @@ CivicTrack enables citizens to report civic issues (potholes, streetlights, garb
 
 ## Tech Stack
 
-**Backend**: Node.js, Express, MongoDB, Redis, Bull MQ, Socket.io  
-**Frontend**: Next.js 14, TypeScript, Tailwind CSS  
-**Storage**: Cloudinary + GridFS hybrid  
-**AI**: OpenRouter (OpenAI-compatible) for report categorization  
+**Backend**: Node.js, Express, PostgreSQL (+ PostGIS) via raw `pg`, MongoDB (GridFS video storage only), Redis, Bull MQ, Server-Sent Events
+**Frontend**: Next.js 14, TypeScript, Tailwind CSS
+**Storage**: Cloudinary (images) + GridFS (large videos)
+**AI**: OpenRouter (OpenAI-compatible) for report categorization
 **Infrastructure**: Docker, Docker Compose
+
+> This project was migrated from MongoDB/Mongoose to PostgreSQL for its
+> primary data (users, reports, tenures, notifications). See
+> [`MIGRATION.md`](./MIGRATION.md) for what changed and why, and
+> `backend/db/schema.sql` for the schema itself. GridFS (MongoDB) is
+> still used for video files.
 
 ## Quick Start
 
@@ -38,8 +43,9 @@ Access: Frontend at `http://localhost:3000`, Backend at `http://localhost:5000`
 **Backend**
 ```bash
 cd backend
-cp .env.example .env   # fill in MONGODB_URI, JWT_SECRET, OPENROUTER_API_KEY, etc.
+cp .env.example .env   # fill in DATABASE_URL (Postgres), MONGODB_URI (GridFS), JWT_SECRET, OPENROUTER_API_KEY, etc.
 npm install
+npm run migrate        # applies backend/db/schema.sql to DATABASE_URL
 npm run seed:admin
 npm run dev
 ```
@@ -77,7 +83,7 @@ GET    /api/officials/:id/scorecard  Official performance
 
 ## Architecture
 
-- **Real-time notifications** via WebSocket and email
+- **Real-time notifications** via Server-Sent Events and email
 - **Background jobs** for media processing, notifications, and report assignment
 - **Geographic assignment** of officials based on report location
 - **AI-powered** report categorization
@@ -88,16 +94,18 @@ GET    /api/officials/:id/scorecard  Official performance
 ```
 civictrack/
 ├── backend/          # Express API server
+│   ├── db/           # PostgreSQL schema.sql + connection pool
 │   ├── controllers/  # Request handlers
-│   ├── models/       # MongoDB schemas
+│   ├── models/       # Raw-SQL data-access layer (users, reports, tenures, notifications)
 │   ├── services/     # Business logic
 │   ├── workers/      # Background jobs
-│   └── config/       # App configuration
+│   └── config/       # App configuration (Postgres primary, Mongo/GridFS for video)
 ├── frontend/         # Next.js application
 │   ├── app/          # Pages (App Router)
 │   ├── components/   # React components
 │   └── hooks/        # Custom hooks
-└── docker-compose.yml
+├── docker-compose.yml
+└── MIGRATION.md      # MongoDB → PostgreSQL migration notes
 ```
 
 

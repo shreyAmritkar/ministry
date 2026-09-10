@@ -10,6 +10,7 @@ import { MapPin, Calendar, User, TrendingUp, ArrowLeft } from 'lucide-react';
 import api from '@/lib/api';
 import { Report } from '@/types/report';
 import StatusBadge from '@/components/reports/StatusBadge';
+import { useReportStream } from '@/hooks/useReportStream';
 
 export default function ReportDetailPage() {
     const params = useParams();
@@ -21,6 +22,12 @@ export default function ReportDetailPage() {
             fetchReport(params.id as string);
         }
     }, [params.id]);
+
+    // Live status/upvote updates while this page is open — refetches
+    // the full report rather than trying to merge the partial SSE payload.
+    useReportStream(params.id as string | undefined, () => {
+        if (params.id) fetchReport(params.id as string);
+    });
 
     const fetchReport = async (id: string) => {
         try {

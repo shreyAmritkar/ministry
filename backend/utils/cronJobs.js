@@ -1,9 +1,11 @@
 // ============================================
-// utils/cronJobs.js (NEW)
+// utils/cronJobs.js
 // Schedule Auto-verification & Reminders
 // ============================================
 const cron = require('node-cron');
 const notificationService = require('../services/notificationService');
+const Notification = require('../models/Notification');
+const RefreshToken = require('../models/RefreshToken');
 
 class CronJobs {
     static init() {
@@ -14,17 +16,13 @@ class CronJobs {
             console.log('🔄 Running hourly verification checks...');
 
             try {
-                // Send reminders (24h before deadline)
                 const Report = require('../models/Report');
-                const reports = await Report.find({
-                    'resolutionDetails.verificationStatus': 'pending_verification'
-                });
+                const reports = await Report.findPendingVerification();
 
                 for (const report of reports) {
                     await notificationService.sendVerificationReminder(report._id);
                 }
 
-                // Auto-verify expired reports
                 const autoVerifiedCount = await notificationService.autoVerifyExpiredReports();
 
                 if (autoVerifiedCount > 0) {
@@ -32,6 +30,30 @@ class CronJobs {
                 }
             } catch (error) {
                 console.error('Cron job error:', error);
+            }
+        });
+
+        // Run once a day - replaces Mongo's `expireAfterSeconds` TTL index,
+        // which has no direct Postgres equivalent.
+        cron.schedule('30 2 * * *', async () => {
+            try {
+                const deleted = await Notification.deleteOlderThan30Days();
+                if (deleted > 0) {
+                    console.log(`🗑️  Purged ${deleted} notifications older than 30 days`);
+                }
+            } catch (error) {
+                console.error('Notification purge cron error:', error);
+            }
+
+            try {
+                // Housekeeping only — revoked/expired rows are never
+                // treated as valid regardless of whether this has run.
+                const purged = await RefreshToken.deleteExpired();
+                if (purged > 0) {
+                    console.log(`🗑️  Purged ${purged} expired refresh tokens`);
+                }
+            } catch (error) {
+                console.error('Refresh token purge cron error:', error);
             }
         });
 

@@ -1,16 +1,20 @@
-// backend/seeds/createAdmin.js
-const mongoose = require('mongoose');
-const User = require('../models/User');
+// backend/seed/createAdmin.js
 require('dotenv').config();
+const User = require('../models/User');
+const { pool } = require('../db/pool');
 
 const createAdmin = async () => {
     try {
-        await mongoose.connect(process.env.MONGODB_URI);
+        const existing = await User.findByEmail('admin@civictrack.com');
+        if (existing) {
+            console.log('ℹ️  Admin already exists:', existing.email);
+            process.exit(0);
+        }
 
         const admin = await User.create({
             name: 'Admin User',
             email: 'admin@civictrack.com',
-            password: 'admin123', // Will be hashed automatically
+            password: 'admin123', // hashed inside User.create
             userType: 'citizen',
             role: 'admin',
             phone: '9999999999',
@@ -26,20 +30,14 @@ const createAdmin = async () => {
     } catch (error) {
         console.error('❌ Error:', error);
         process.exit(1);
+    } finally {
+        await pool.end();
     }
 };
 
 createAdmin();
 
-
-// db.users.updateOne(
-//       { email: "shiv@gmail.com" },
-//        {
-//          $set: {
-//                 role: "official",
-//              userType: "official",
-//        isVerified: true,
-//       isActive: true
-//      }
-//   }
-//  )
+// To promote an existing user to an official, e.g.:
+//   UPDATE users SET role = 'official', user_type = 'official',
+//                    is_verified = true, is_active = true
+//   WHERE email = 'shiv@gmail.com';

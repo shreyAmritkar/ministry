@@ -95,10 +95,7 @@ const assignReportToOfficial = async (latitude, longitude, date) => {
         console.log(`📍 Report location mapped to City: ${city}`);
 
         // Step 3: Find the official who was responsible for the city at that specific time
-        // NOTE: Uses the static method defined in the modified OfficialTenure schema.
-        const tenure = await OfficialTenure.findOfficialAtDate(city.toLowerCase(), reportDate)
-            .populate('official', 'name email phone officialDetails')
-            .lean();
+        const tenure = await OfficialTenure.findOfficialAtDate(city.toLowerCase(), reportDate);
 
         if (!tenure) {
             console.warn(`No city-level official found for ${city} at ${reportDate}`);

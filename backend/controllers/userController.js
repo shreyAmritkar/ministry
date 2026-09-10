@@ -3,9 +3,10 @@
 // User Management Controller
 // ============================================
 const asyncHandler = require("../utils/asyncHandler");
-const {paginated, success} = require("../utils/ApiResponse");
+const { paginated, success } = require("../utils/ApiResponse");
 const ApiError = require("../utils/ApiError");
-const { findByIdAndUpdate} = require("../models/User");
+const User = require('../models/User');
+
 /**
  * @route   GET /api/v1/users
  * @desc    Get all users (Admin only)
@@ -14,17 +15,13 @@ const { findByIdAndUpdate} = require("../models/User");
 exports.getAllUsers = asyncHandler(async (req, res) => {
     const { userType, role, page = 1, limit = 20 } = req.query;
 
-    const query = {};
-    if (userType) query.userType = userType;
-    if (role) query.role = role;
+    const filters = {};
+    if (userType) filters.userType = userType;
+    if (role) filters.role = role;
 
-    const users = await User.find(query)
-        .select('-password')
-        .sort({ createdAt: -1 })
-        .limit(limit * 1)
-        .skip((page - 1) * limit);
-
-    const total = await User.countDocuments(query);
+    const numLimit = Number(limit);
+    const users = await User.findAll(filters, { limit: numLimit, offset: (page - 1) * numLimit });
+    const total = await User.count(filters);
 
     return paginated(
         res,
@@ -32,7 +29,7 @@ exports.getAllUsers = asyncHandler(async (req, res) => {
         {
             total,
             page: parseInt(page),
-            pages: Math.ceil(total / limit)
+            pages: Math.ceil(total / numLimit)
         },
         'Users retrieved successfully'
     );
@@ -44,7 +41,7 @@ exports.getAllUsers = asyncHandler(async (req, res) => {
  * @access  Private
  */
 exports.getUserById = asyncHandler(async (req, res) => {
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findById(req.params.id);
 
     if (!user) {
         throw new ApiError('User not found', 404);
@@ -77,11 +74,7 @@ exports.updateProfile = asyncHandler(async (req, res) => {
         }
     });
 
-    const user = await findByIdAndUpdate(
-        req.params.id,
-        updates,
-        { new: true, runValidators: true }
-    ).select('-password');
+    const user = await User.updateById(req.params.id, updates);
 
     if (!user) {
         throw new ApiError('User not found', 404);
@@ -106,11 +99,7 @@ exports.updateUserRole = asyncHandler(async (req, res) => {
         throw new ApiError('Role is required', 400);
     }
 
-    const user = await User.findByIdAndUpdate(
-        req.params.id,
-        { role },
-        { new: true, runValidators: true }
-    ).select('-password');
+    const user = await User.updateById(req.params.id, { role });
 
     if (!user) {
         throw new ApiError('User not found', 404);
@@ -129,11 +118,7 @@ exports.updateUserRole = asyncHandler(async (req, res) => {
  * @access  Private/Admin
  */
 exports.deleteUser = asyncHandler(async (req, res) => {
-    const user = await findByIdAndUpdate(
-        req.params.id,
-        { isActive: false },
-        { new: true }
-    );
+    const user = await User.updateById(req.params.id, { isActive: false });
 
     if (!user) {
         throw new ApiError('User not found', 404);

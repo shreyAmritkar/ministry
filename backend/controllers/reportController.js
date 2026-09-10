@@ -1,15 +1,16 @@
 // ============================================
 // controllers/reportController.js
-// Report Management Controller (MODIFIED FOR CITY-LEVEL)
+// Report Management Controller
 // ============================================
 const Report = require('../models/Report');
 const reportService = require('../services/reportService');
-const { assignReportToOfficial } = require('../utils/assignmentHelper'); // Assumes this now returns 'city'
+const OfficialTenure = require('../models/OfficialTenure');
+const { assignReportToOfficial } = require('../utils/assignmentHelper');
 const asyncHandler = require("../utils/asyncHandler");
-const {paginated, success} = require("../utils/ApiResponse"); // Added ApiResponse here
+const { paginated, success } = require("../utils/ApiResponse");
 const ApiError = require("../utils/ApiError");
-const User = require('../models/User');
 const notificationService = require('../services/notificationService');
+const sseService = require('../services/sseService');
 const { queueAIAnalysis, queueNotification } = require('../queues/report.queue');
 
 /**
@@ -20,25 +21,17 @@ const { queueAIAnalysis, queueNotification } = require('../queues/report.queue')
 exports.markAsResolved = asyncHandler(async (req, res) => {
     const { resolutionDescription, verificationMedia } = req.body;
 
-    const report = await Report.findById(req.params.id);
-
-    if (!report) {
+    const existing = await Report.findById(req.params.id);
+    if (!existing) {
         throw new ApiError('Report not found', 404);
     }
 
-    // Update report
-    report.status = 'Reported'; // Temporary status until verified
-    report.resolutionDetails = {
+    const report = await Report.setResolutionClaim(req.params.id, {
         description: resolutionDescription,
         resolvedBy: req.user._id,
-        resolvedAt: new Date(),
         verificationMedia: verificationMedia || [],
-        verificationStatus: 'pending_verification',
-    };
+    });
 
-    await report.save();
-
-    // Send notification to reporter
     await notificationService.notifyResolutionClaimed(report._id);
 
     return success(
@@ -56,39 +49,22 @@ exports.markAsResolved = asyncHandler(async (req, res) => {
 exports.verifyResolution = asyncHandler(async (req, res) => {
     const { verified, comment } = req.body;
 
-    const report = await Report.findById(req.params.id);
-
-    if (!report) {
+    const existing = await Report.findById(req.params.id);
+    if (!existing) {
         throw new ApiError('Report not found', 404);
     }
 
-    // Check if user is the reporter
-    if (report.reportedBy.toString() !== req.user._id.toString()) {
+    if (existing.reportedBy !== req.user._id) {
         throw new ApiError('Only the reporter can verify resolution', 403);
     }
 
-    if (verified) {
-        // Reporter confirms resolution
-        report.status = 'Solved';
-        report.resolutionDetails.verificationStatus = 'verified';
-        report.resolutionDetails.verifiedBy = req.user._id;
-        report.resolutionDetails.verifiedAt = new Date();
-        report.resolutionDetails.verificationComment = comment || 'Verified by reporter';
+    const report = await Report.setVerification(req.params.id, {
+        verified, userId: req.user._id, comment,
+    });
 
-        // Update official metrics
-        if (report.official_tenure_id) {
-            const OfficialTenure = require('../models/OfficialTenure');
-            const tenure = await OfficialTenure.findById(report.official_tenure_id);
-            if (tenure) await tenure.updateMetrics();
-        }
-    } else {
-        // Reporter rejects resolution
-        report.status = 'In_Progress';
-        report.resolutionDetails.verificationStatus = 'rejected';
-        report.resolutionDetails.verificationComment = comment || 'Resolution rejected by reporter';
+    if (verified && report.official_tenure_id) {
+        await OfficialTenure.updateMetrics(report.official_tenure_id);
     }
-
-    await report.save();
 
     return success(
         res,
@@ -99,29 +75,27 @@ exports.verifyResolution = asyncHandler(async (req, res) => {
 
 /**
  * @route   GET /api/v1/reports
- * @desc    Get all reports with filters (now includes city filter)
+ * @desc    Get all reports with filters
  * @access  Public
  */
 exports.getAllReports = asyncHandler(async (req, res) => {
-    // Replaced 'ward' with 'city' in the destructuring
     const { status, category, city, priority, page = 1, limit = 20 } = req.query;
 
-    const query = {};
+    const filters = {};
+    if (status) filters.status = status;
+    if (category) filters.category = category;
+    if (city) filters.city = city;
+    if (priority) filters.priority = priority;
 
-    if (status) query.status = status;
-    if (category) query.category = category;
-    if (city) query['address.city'] = city; // Updated filter to target city field
-    if (priority) query.priority = priority;
+    const numLimit = Number(limit);
+    const reports = await Report.findAll(filters, { limit: numLimit, offset: (page - 1) * numLimit });
 
-    const reports = await Report.find(query)
-        .populate('reportedBy', 'name email')
-        .populate('assignedTo', 'name officialDetails')
-        .populate('official_tenure_id', 'position city') // Updated official_tenure_id population field
-        .sort({ createdAt: -1 })
-        .limit(limit * 1)
-        .skip((page - 1) * limit);
+    for (const report of reports) {
+        await Report.populateUsers(report, 'name email officialDetails');
+        await Report.populateTenure(report, 'position city');
+    }
 
-    const total = await Report.countDocuments(query);
+    const total = await Report.count(filters);
 
     return paginated(
         res,
@@ -129,7 +103,7 @@ exports.getAllReports = asyncHandler(async (req, res) => {
         {
             total,
             page: parseInt(page),
-            pages: Math.ceil(total / limit)
+            pages: Math.ceil(total / numLimit)
         },
         'Reports retrieved successfully'
     );
@@ -141,18 +115,16 @@ exports.getAllReports = asyncHandler(async (req, res) => {
  * @access  Public
  */
 exports.getReportById = asyncHandler(async (req, res) => {
-    const report = await Report.findById(req.params.id)
-        .populate('reportedBy', 'name email phone')
-        .populate('assignedTo', 'name email phone officialDetails')
-        .populate('official_tenure_id', 'position city department'); // Updated population field
+    let report = await Report.findById(req.params.id);
 
     if (!report) {
         throw new ApiError('Report not found', 404);
     }
 
-    // Increment view count
-    report.views += 1;
-    await report.save();
+    report = await Report.incrementViews(report._id);
+    await Report.populateUsers(report, 'name email phone officialDetails');
+    await Report.populateTenure(report, 'position city department');
+    await Report.attachStatusHistory(report);
 
     return success(
         res,
@@ -172,18 +144,16 @@ exports.createReport = asyncHandler(async (req, res) => {
         reportedBy: req.user._id,
     };
 
-    // Validate coordinates
     if (!reportData.location?.coordinates || reportData.location.coordinates.length !== 2) {
         throw new ApiError('Valid GeoJSON location coordinates are required.', 400);
     }
 
     const [longitude, latitude] = reportData.location.coordinates;
 
-    // Auto-assign to official
     const assignment = await assignReportToOfficial(latitude, longitude, new Date());
 
     if (assignment.city) {
-        reportData.address.city = assignment.city;
+        reportData.address = { ...reportData.address, city: assignment.city };
     }
 
     if (assignment.official_id) {
@@ -191,12 +161,8 @@ exports.createReport = asyncHandler(async (req, res) => {
         reportData.official_tenure_id = assignment.tenure_id;
     }
 
-    // Create report FIRST (without AI data)
-    const report = await reportService.createReport(reportData, req.user._id);
+    let report = await reportService.createReport(reportData, req.user._id);
 
-    // ============================================
-    // 🚀 QUEUE AI ANALYSIS IN BACKGROUND
-    // ============================================
     try {
         await queueAIAnalysis(
             report._id.toString(),
@@ -208,7 +174,6 @@ exports.createReport = asyncHandler(async (req, res) => {
         console.warn('Failed to queue AI analysis:', queueError);
     }
 
-    // Queue notification to assigned official
     if (assignment.official_id) {
         try {
             await queueNotification('report-assigned', assignment.official_id, {
@@ -221,8 +186,7 @@ exports.createReport = asyncHandler(async (req, res) => {
         }
     }
 
-    // Populate relations for response
-    await report.populate('assignedTo', 'name officialDetails');
+    await Report.populateUsers(report, 'name officialDetails');
 
     return success(
         res,
@@ -235,16 +199,15 @@ exports.createReport = asyncHandler(async (req, res) => {
         201
     );
 });
+
 /**
  * @route   POST /api/v1/reports/bulk
  * @desc    Create new reports
  * @access  Private
  */
-
 exports.createBulkReports = asyncHandler(async (req, res) => {
     const { reports } = req.body;
 
-    // Validate input
     if (!Array.isArray(reports) || reports.length === 0) {
         throw new ApiError('Reports array is required and cannot be empty', 400);
     }
@@ -253,20 +216,12 @@ exports.createBulkReports = asyncHandler(async (req, res) => {
         throw new ApiError('Cannot create more than 100 reports at once', 400);
     }
 
-    const results = {
-        successful: [],
-        failed: []
-    };
+    const results = { successful: [], failed: [] };
 
-    // Process each report
     for (let i = 0; i < reports.length; i++) {
         try {
-            const reportData = {
-                ...reports[i],
-                reportedBy: req.user._id
-            };
+            const reportData = { ...reports[i], reportedBy: req.user._id };
 
-            // Validate coordinates
             if (!reportData.location || !reportData.location.coordinates || reportData.location.coordinates.length !== 2) {
                 results.failed.push({
                     index: i,
@@ -278,46 +233,26 @@ exports.createBulkReports = asyncHandler(async (req, res) => {
 
             const [longitude, latitude] = reportData.location.coordinates;
 
-            // Auto-assign to official
-            const assignment = await assignReportToOfficial(
-                latitude,
-                longitude,
-                new Date()
-            );
+            const assignment = await assignReportToOfficial(latitude, longitude, new Date());
 
-            // Set city if determined
             if (assignment.city) {
                 reportData.address = reportData.address || {};
                 reportData.address.city = assignment.city;
             }
 
-            // Set assignment if official found
             if (assignment.official_id) {
                 reportData.assignedTo = assignment.official_id;
                 reportData.official_tenure_id = assignment.tenure_id;
             }
 
-            // AI Analysis (if you want to keep it)
-            // Uncomment if aiAnalysis is available
-            /*
-            reportData.title = aiAnalysis.title;
-            reportData.description = aiAnalysis.description;
-            reportData.priority = aiAnalysis.priority;
-            reportData.category = aiAnalysis.category;
-            */
-
-            // Create report
             const report = await reportService.createReport(reportData, req.user._id);
-
-            // Populate relations
-            await report.populate('assignedTo', 'name officialDetails');
+            await Report.populateUsers(report, 'name officialDetails');
 
             results.successful.push({
                 index: i,
                 reportId: report._id,
                 assignment: assignment.officialDetails || null
             });
-
         } catch (error) {
             results.failed.push({
                 index: i,
@@ -340,6 +275,29 @@ exports.createBulkReports = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * @route   GET /api/v1/reports/:id/stream
+ * @desc    Server-Sent Events stream of live updates for one report —
+ *          status changes, upvotes — for anyone with the detail page
+ *          open. Public, same access model as GET /reports/:id.
+ * @access  Public (SSE)
+ */
+exports.streamReport = (req, res) => {
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+    });
+
+    res.write(`event: connected\ndata: ${JSON.stringify({ reportId: req.params.id })}\n\n`);
+
+    const unregister = sseService.registerConnection(res, {
+        reportId: String(req.params.id),
+    });
+
+    req.on('close', unregister);
+};
 
 /**
  * @route   PATCH /api/v1/reports/:id/status
@@ -360,6 +318,8 @@ exports.updateReportStatus = asyncHandler(async (req, res) => {
         comment
     );
 
+    notificationService.emitReportUpdate(report._id, { status: report.status, updatedAt: report.updatedAt });
+
     return success(
         res,
         report,
@@ -371,8 +331,6 @@ exports.updateReportStatus = asyncHandler(async (req, res) => {
  * @route   PATCH /api/v1/reports/:id/assign
  * @desc    Assign report to official
  * @access  Private (Admin)
- * * NOTE: For city-level accountability, this route is less necessary but remains
- * for Admin fallback/reassignment of UNASSIGNED reports.
  */
 exports.assignReport = asyncHandler(async (req, res) => {
     const { officialId } = req.body;
@@ -381,8 +339,6 @@ exports.assignReport = asyncHandler(async (req, res) => {
         throw new ApiError('Official ID is required', 400);
     }
 
-    // NOTE: In a city-level system, this function might need to also update the
-    // official_tenure_id based on the officialId provided.
     const report = await reportService.assignReportToOfficial(
         req.params.id,
         officialId
@@ -401,11 +357,13 @@ exports.assignReport = asyncHandler(async (req, res) => {
  * @access  Private
  */
 exports.getMyReports = asyncHandler(async (req, res) => {
-    const reports = await Report.find({ reportedBy: req.user._id })
-        .populate('assignedTo', 'name officialDetails')
-        .sort({ createdAt: -1 });
+    const reports = await Report.findAll({ reportedBy: req.user._id }, { limit: 1000, offset: 0 });
 
-    return success( // Fixed: Was ApiResponse.success
+    for (const report of reports) {
+        await Report.populateUsers(report, 'name officialDetails');
+    }
+
+    return success(
         res,
         reports,
         'User reports retrieved successfully'
@@ -431,8 +389,6 @@ exports.getReportsNearby = asyncHandler(async (req, res) => {
     if (status) filters.status = status;
     if (category) filters.category = category;
 
-    // Clamp requested radius to MAX_SEARCH_RADIUS to prevent expensive,
-    // unbounded $geoNear scans across the entire collection.
     const requestedDistance = parseInt(maxDistance, 10) || DEFAULT_SEARCH_RADIUS;
     const clampedDistance = Math.min(requestedDistance, MAX_SEARCH_RADIUS);
 
@@ -443,7 +399,7 @@ exports.getReportsNearby = asyncHandler(async (req, res) => {
         filters
     );
 
-    return success( // Fixed: Was ApiResponse.success
+    return success(
         res,
         reports,
         'Nearby reports retrieved successfully'
@@ -456,28 +412,19 @@ exports.getReportsNearby = asyncHandler(async (req, res) => {
  * @access  Private
  */
 exports.upvoteReport = asyncHandler(async (req, res) => {
-    const report = await Report.findById(req.params.id);
+    const existing = await Report.findById(req.params.id);
 
-    if (!report) {
+    if (!existing) {
         throw new ApiError('Report not found', 404);
     }
 
-    // Assuming the Report model has a method addUpvote
-    // NOTE: The original code lacked definition for addUpvote, assuming it exists on the model.
-    if (report.addUpvote) {
-        await report.addUpvote(req.user._id);
-    } else {
-        // Fallback or simple logic if model method is missing
-        if (!report.upvotes.includes(req.user._id)) {
-            report.upvotes.push(req.user._id);
-            await report.save();
-        }
-    }
+    const upvotes = await Report.addUpvote(req.params.id, req.user._id);
 
+    notificationService.emitReportUpdate(req.params.id, { upvotes });
 
     return success(
         res,
-        { upvotes: report.upvotes.length }, // Return the count
+        { upvotes },
         'Report upvoted successfully'
     );
 });
@@ -494,9 +441,7 @@ exports.deleteReport = asyncHandler(async (req, res) => {
         throw new ApiError('Report not found', 404);
     }
 
-    // Check for authorization (e.g., if (req.user.role !== 'admin')) here in a real app
-
-    await report.deleteOne();
+    await Report.deleteById(req.params.id);
 
     return success(
         res,
@@ -504,34 +449,25 @@ exports.deleteReport = asyncHandler(async (req, res) => {
         'Report deleted successfully'
     );
 });
+
 /**
  * @route   GET /api/v1/reports/official/my-assigned-reports
  * @desc    Get all reports assigned to the current official
  * @access  Private (Official)
  */
 exports.getOfficialAssignedReports = asyncHandler(async (req, res) => {
-    // 1. Get the authenticated official's ID from req.user
     const officialId = req.user._id;
 
     if (!officialId) {
         throw new ApiError('Authentication error: Official ID not found.', 401);
     }
 
-    // 2. Query the database for reports assigned to this official.
-    // We filter reports that have the official's ID in the nested assignedTo field.
-    const reports = await Report.find({
-        'assignedTo': officialId,
-    })
-        .populate('reportedBy', 'name email')
-        .populate('assignedTo', 'name officialDetails')
-        .sort({
-            // Prioritize reports that need action: Pending > Acknowledged > In_Progress
-            status: 1,
-            priority: -1, // High priority first
-            createdAt: -1
-        });
+    const reports = await Report.findByAssignedTo(officialId);
 
-    // 3. Respond with the list of reports
+    for (const report of reports) {
+        await Report.populateUsers(report, 'name email officialDetails');
+    }
+
     return success(
         res,
         reports,
